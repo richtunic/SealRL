@@ -168,13 +168,39 @@ object DownloadUtil {
                 url.contains(".webp", ignoreCase = true) -> "webp"
                 else -> "mp4"
             }
+            var title = "Instagram Media"
+            var thumbnail = url
+            var webpage = url
+            var author = "Autor desconocido"
+            
+            if (url.contains("#")) {
+                try {
+                    val fragment = url.substringAfter("#", "")
+                    val params = fragment.split("&").associate {
+                        val parts = it.split("=")
+                        if (parts.size == 2) {
+                            parts[0] to java.net.URLDecoder.decode(parts[1], "UTF-8")
+                        } else {
+                            parts[0] to ""
+                        }
+                    }
+                    params["ig_title"]?.let { if (it.isNotEmpty()) title = it }
+                    params["ig_thumb"]?.let { if (it.isNotEmpty()) thumbnail = it }
+                    params["ig_webpage"]?.let { if (it.isNotEmpty()) webpage = it }
+                    params["ig_author"]?.let { if (it.isNotEmpty()) author = it }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
             val syntheticInfo = VideoInfo(
                 id = "instagram_${url.hashCode()}",
-                title = "Instagram Media",
+                title = title,
                 ext = ext,
-                webpageUrl = url,
+                webpageUrl = webpage,
                 originalUrl = url,
-                thumbnail = url,
+                thumbnail = thumbnail,
+                uploader = author,
                 extractor = "instagram",
                 extractorKey = "Instagram",
             )
@@ -816,7 +842,7 @@ object DownloadUtil {
                 val ext = videoInfo.ext.ifEmpty { "mp4" }
                 val prefix = if (videoInfo.extractor == "threads") "threads" else "instagram"
                 
-                val igId = if (mediaUrl.contains("#ig_id=")) mediaUrl.substringAfter("#ig_id=") else ""
+                val igId = if (mediaUrl.contains("#ig_id=")) mediaUrl.substringAfter("#ig_id=").substringBefore("&") else ""
                 val fileName = if (igId.isNotEmpty()) {
                     "${prefix}_$igId.$ext"
                 } else {
@@ -1222,6 +1248,34 @@ object DownloadUtil {
      * Uses session cookies captured via WebView login to call the Threads/Instagram
      * media info API. Tries multiple endpoints and cookie sources.
      */
+    private fun createInstagramMediaUrl(
+        mediaUrl: String,
+        id: String,
+        title: String,
+        thumbnailUrl: String?,
+        webpageUrl: String?,
+        author: String?,
+    ): String {
+        val sb = StringBuilder(mediaUrl)
+        sb.append("#ig_id=").append(id)
+        try {
+            val enc = "UTF-8"
+            sb.append("&ig_title=").append(java.net.URLEncoder.encode(title, enc))
+            if (!thumbnailUrl.isNullOrEmpty()) {
+                sb.append("&ig_thumb=").append(java.net.URLEncoder.encode(thumbnailUrl, enc))
+            }
+            if (!webpageUrl.isNullOrEmpty()) {
+                sb.append("&ig_webpage=").append(java.net.URLEncoder.encode(webpageUrl, enc))
+            }
+            if (!author.isNullOrEmpty()) {
+                sb.append("&ig_author=").append(java.net.URLEncoder.encode(author, enc))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return sb.toString()
+    }
+
     private fun resolveThreadsUrl(url: String): Pair<String, String?> {
         if (!url.contains("threads.com", ignoreCase = true) && !url.contains("threads.net", ignoreCase = true)) return Pair(url, null)
 
@@ -1554,6 +1608,13 @@ object DownloadUtil {
             if (items.length() == 0) return null
             val item = items.getJSONObject(0)
 
+            val user = item.optJSONObject("user")
+            val username = user?.optString("username") ?: "instagram_user"
+            val fullName = user?.optString("full_name")
+            val author = if (!fullName.isNullOrEmpty()) "$fullName ($username)" else username
+            val code = item.optString("code")
+            val webpageUrl = if (!code.isNullOrEmpty()) "https://www.instagram.com/p/$code/" else "https://www.instagram.com/"
+
             val list = mutableListOf<InstagramMediaItem>()
 
             val carouselMedia = item.optJSONArray("carousel_media")
@@ -1571,21 +1632,39 @@ object DownloadUtil {
                     val videoVersions = subItem.optJSONArray("video_versions")
                     if (videoVersions != null && videoVersions.length() > 0) {
                         val videoUrl = videoVersions.getJSONObject(0).getString("url")
+                        val title = "Instagram Video ${i + 1}"
+                        val fullUrl = createInstagramMediaUrl(
+                            mediaUrl = videoUrl,
+                            id = id,
+                            title = title,
+                            thumbnailUrl = thumbnailUrl,
+                            webpageUrl = webpageUrl,
+                            author = author
+                        )
                         list.add(InstagramMediaItem(
                             id = id,
-                            mediaUrl = videoUrl + "#ig_id=$id",
+                            mediaUrl = fullUrl,
                             thumbnailUrl = thumbnailUrl ?: videoUrl,
                             isVideo = true,
-                            title = "Instagram Video ${i + 1}"
+                            title = title
                         ))
                     } else if (imageVersions != null && imageVersions.length() > 0) {
                         val imageUrl = imageVersions.getJSONObject(0).getString("url")
+                        val title = "Instagram Photo ${i + 1}"
+                        val fullUrl = createInstagramMediaUrl(
+                            mediaUrl = imageUrl,
+                            id = id,
+                            title = title,
+                            thumbnailUrl = thumbnailUrl,
+                            webpageUrl = webpageUrl,
+                            author = author
+                        )
                         list.add(InstagramMediaItem(
                             id = id,
-                            mediaUrl = imageUrl + "#ig_id=$id",
+                            mediaUrl = fullUrl,
                             thumbnailUrl = thumbnailUrl ?: imageUrl,
                             isVideo = false,
-                            title = "Instagram Photo ${i + 1}"
+                            title = title
                         ))
                     }
                 }
@@ -1601,21 +1680,39 @@ object DownloadUtil {
                 val videoVersions = item.optJSONArray("video_versions")
                 if (videoVersions != null && videoVersions.length() > 0) {
                     val videoUrl = videoVersions.getJSONObject(0).getString("url")
+                    val title = "Instagram Video"
+                    val fullUrl = createInstagramMediaUrl(
+                        mediaUrl = videoUrl,
+                        id = id,
+                        title = title,
+                        thumbnailUrl = thumbnailUrl,
+                        webpageUrl = webpageUrl,
+                        author = author
+                    )
                     list.add(InstagramMediaItem(
                         id = id,
-                        mediaUrl = videoUrl + "#ig_id=$id",
+                        mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: videoUrl,
                         isVideo = true,
-                        title = "Instagram Video"
+                        title = title
                     ))
                 } else if (imageVersions != null && imageVersions.length() > 0) {
                     val imageUrl = imageVersions.getJSONObject(0).getString("url")
+                    val title = "Instagram Photo"
+                    val fullUrl = createInstagramMediaUrl(
+                        mediaUrl = imageUrl,
+                        id = id,
+                        title = title,
+                        thumbnailUrl = thumbnailUrl,
+                        webpageUrl = webpageUrl,
+                        author = author
+                    )
                     list.add(InstagramMediaItem(
                         id = id,
-                        mediaUrl = imageUrl + "#ig_id=$id",
+                        mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: imageUrl,
                         isVideo = false,
-                        title = "Instagram Photo"
+                        title = title
                     ))
                 }
             }
@@ -1647,6 +1744,12 @@ object DownloadUtil {
             val userReel = reels.optJSONObject(userId) ?: return null
             val items = userReel.optJSONArray("items") ?: return null
 
+            val user = userReel.optJSONObject("user")
+            val username = user?.optString("username") ?: "instagram_user"
+            val fullName = user?.optString("full_name")
+            val author = if (!fullName.isNullOrEmpty()) "$fullName ($username)" else username
+            val webpageUrl = "https://www.instagram.com/stories/$username/"
+
             val list = mutableListOf<InstagramMediaItem>()
             for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
@@ -1661,21 +1764,39 @@ object DownloadUtil {
                 val videoVersions = item.optJSONArray("video_versions")
                 if (videoVersions != null && videoVersions.length() > 0) {
                     val videoUrl = videoVersions.getJSONObject(0).getString("url")
+                    val title = "Story Video ${i + 1}"
+                    val fullUrl = createInstagramMediaUrl(
+                        mediaUrl = videoUrl,
+                        id = id,
+                        title = title,
+                        thumbnailUrl = thumbnailUrl,
+                        webpageUrl = webpageUrl,
+                        author = author
+                    )
                     list.add(InstagramMediaItem(
                         id = id,
-                        mediaUrl = videoUrl + "#ig_id=$id",
+                        mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: videoUrl,
                         isVideo = true,
-                        title = "Story Video ${i + 1}"
+                        title = title
                     ))
                 } else if (imageVersions != null && imageVersions.length() > 0) {
                     val imageUrl = imageVersions.getJSONObject(0).getString("url")
+                    val title = "Story Photo ${i + 1}"
+                    val fullUrl = createInstagramMediaUrl(
+                        mediaUrl = imageUrl,
+                        id = id,
+                        title = title,
+                        thumbnailUrl = thumbnailUrl,
+                        webpageUrl = webpageUrl,
+                        author = author
+                    )
                     list.add(InstagramMediaItem(
                         id = id,
-                        mediaUrl = imageUrl + "#ig_id=$id",
+                        mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: imageUrl,
                         isVideo = false,
-                        title = "Story Photo ${i + 1}"
+                        title = title
                     ))
                 }
             }

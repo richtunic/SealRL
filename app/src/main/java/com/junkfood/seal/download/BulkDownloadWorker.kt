@@ -223,7 +223,7 @@ class BulkDownloadWorker(
                 id = 0,
                 videoTitle = videoInfo.title ?: current.title ?: current.url,
                 videoAuthor = videoInfo.uploader ?: videoInfo.uploaderId ?: videoInfo.channel ?: "Autor desconocido",
-                videoUrl = current.url,
+                videoUrl = videoInfo.webpageUrl ?: current.url,
                 thumbnailUrl = videoInfo.thumbnail ?: "",
                 videoPath = downloadedPath,
                 extractor = videoInfo.extractor ?: videoInfo.extractorKey ?: "Unknown"
