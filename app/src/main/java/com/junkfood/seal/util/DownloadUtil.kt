@@ -1646,7 +1646,8 @@ object DownloadUtil {
                             mediaUrl = fullUrl,
                             thumbnailUrl = thumbnailUrl ?: videoUrl,
                             isVideo = true,
-                            title = title
+                            title = title,
+                            author = author
                         ))
                     } else if (imageVersions != null && imageVersions.length() > 0) {
                         val imageUrl = imageVersions.getJSONObject(0).getString("url")
@@ -1664,7 +1665,8 @@ object DownloadUtil {
                             mediaUrl = fullUrl,
                             thumbnailUrl = thumbnailUrl ?: imageUrl,
                             isVideo = false,
-                            title = title
+                            title = title,
+                            author = author
                         ))
                     }
                 }
@@ -1694,7 +1696,8 @@ object DownloadUtil {
                         mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: videoUrl,
                         isVideo = true,
-                        title = title
+                        title = title,
+                        author = author
                     ))
                 } else if (imageVersions != null && imageVersions.length() > 0) {
                     val imageUrl = imageVersions.getJSONObject(0).getString("url")
@@ -1712,7 +1715,8 @@ object DownloadUtil {
                         mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: imageUrl,
                         isVideo = false,
-                        title = title
+                        title = title,
+                        author = author
                     ))
                 }
             }
@@ -1778,7 +1782,8 @@ object DownloadUtil {
                         mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: videoUrl,
                         isVideo = true,
-                        title = title
+                        title = title,
+                        author = author
                     ))
                 } else if (imageVersions != null && imageVersions.length() > 0) {
                     val imageUrl = imageVersions.getJSONObject(0).getString("url")
@@ -1796,7 +1801,8 @@ object DownloadUtil {
                         mediaUrl = fullUrl,
                         thumbnailUrl = thumbnailUrl ?: imageUrl,
                         isVideo = false,
-                        title = title
+                        title = title,
+                        author = author
                     ))
                 }
             }
@@ -1907,7 +1913,8 @@ data class InstagramMediaItem(
     val mediaUrl: String,
     val thumbnailUrl: String?,
     val isVideo: Boolean,
-    val title: String
+    val title: String,
+    val author: String? = null
 )
 
 class InstagramLoginRequiredException : Exception("Instagram login required")

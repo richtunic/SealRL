@@ -196,9 +196,8 @@ fun SimpleMainScreen(
         android.util.Log.d("Antigravity", "state changed: $state")
         if (state is DownloadDialogViewModel.SheetState.Configure) {
             val urlList = (state as DownloadDialogViewModel.SheetState.Configure).urlList
-            val hasYoutube = urlList.any { com.junkfood.seal.util.BulkUrlParser.getPlatformName(it) == "YouTube" }
-            android.util.Log.d("Antigravity", "Configure state URLs: $urlList, hasYoutube: $hasYoutube")
-            if (!hasYoutube) {
+            android.util.Log.d("Antigravity", "Configure state URLs: $urlList")
+            if (urlList.isNotEmpty()) {
                 bulkViewModel.onInputTextChange(urlList.joinToString("\n"))
                 bulkViewModel.parseAndAddToQueue()
                 dialogViewModel.postAction(DownloadDialogViewModel.Action.HideSheet)
@@ -519,24 +518,7 @@ fun SimpleMainScreen(
                             Button(
                                 onClick = {
                                     if (hasPermission) {
-                                        val text = inputText
-                                        val parsedUrls = com.junkfood.seal.util.BulkUrlParser.parse(text)
-                                        android.util.Log.d("Antigravity", "Download button clicked. Input: '$text', Parsed: $parsedUrls")
-                                        val youtubeUrls = parsedUrls.filter { com.junkfood.seal.util.BulkUrlParser.getPlatformName(it) == "YouTube" }
-                                        val otherUrls = parsedUrls.filter { com.junkfood.seal.util.BulkUrlParser.getPlatformName(it) != "YouTube" }
-                                        android.util.Log.d("Antigravity", "youtubeUrls: $youtubeUrls, otherUrls: $otherUrls")
-                                        if (youtubeUrls.isNotEmpty()) {
-                                            if (otherUrls.isNotEmpty()) {
-                                                bulkViewModel.onInputTextChange(otherUrls.joinToString("\n"))
-                                                bulkViewModel.parseAndAddToQueue()
-                                                scope.launch { pagerState.animateScrollToPage(1) }
-                                            } else {
-                                                bulkViewModel.onInputTextChange("")
-                                            }
-                                            android.util.Log.d("Antigravity", "Posting ShowSheet action for youtubeUrls: $youtubeUrls")
-                                            dialogViewModel.postAction(DownloadDialogViewModel.Action.ShowSheet(youtubeUrls))
-                                        } else {
-                                            android.util.Log.d("Antigravity", "No YouTube URLs found. Enqueuing via bulk worker.")
+                                        if (inputText.isNotBlank()) {
                                             bulkViewModel.parseAndAddToQueue()
                                             scope.launch { pagerState.animateScrollToPage(1) }
                                         }
@@ -1004,11 +986,21 @@ fun SimpleMainScreen(
             AlertDialog(
                 onDismissRequest = { bulkViewModel.cancelMediaSelection() },
                 title = {
-                    Text(
-                        text = "Seleccionar descargas",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
+                    val author = items.firstOrNull()?.author
+                    Column {
+                        Text(
+                            text = stringResource(R.string.select_downloads),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (!author.isNullOrEmpty()) {
+                            Text(
+                                text = author,
+                                color = Color(0xFF999999),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                 },
                 text = {
                     Column(

@@ -36,6 +36,7 @@
     <string name="no_downloads_empty">No hay descargas activas ni guardadas</string>
     <string name="open_download_folder">Abrir carpeta de descargas</string>
     <string name="local_file">Archivo local</string>
+    <string name="select_downloads">Seleccionar descargas</string>
     <string name="metric_total">Total</string>
     <string name="metric_pending">Pendientes</string>
     <string name="metric_downloading">Descargando</string>

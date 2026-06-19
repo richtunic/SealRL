@@ -212,11 +212,12 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
                                 mediaItemsToSelect.addAll(nonDownloaded)
                             } else if (nonDownloaded.size == 1) {
                                 val item = nonDownloaded.first()
+                                val displayTitle = if (!item.author.isNullOrEmpty()) "${item.author} · ${item.title}" else item.title
                                 itemsToEnqueue.add(QueueItemEntity(
                                     url = item.mediaUrl,
                                     normalizedUrl = item.mediaUrl,
                                     platform = if (item.title.contains("Story", ignoreCase = true)) "Story" else "Instagram",
-                                    title = item.title,
+                                    title = displayTitle,
                                     progress = 0f,
                                     status = QueueStatus.PENDING,
                                     errorMessage = null,
@@ -344,11 +345,12 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
     fun enqueueSelectedItems(selectedItems: List<InstagramMediaItem>) {
         viewModelScope.launch(Dispatchers.IO) {
             val newItems = selectedItems.map { item ->
+                val displayTitle = if (!item.author.isNullOrEmpty()) "${item.author} · ${item.title}" else item.title
                 QueueItemEntity(
                     url = item.mediaUrl,
                     normalizedUrl = item.mediaUrl,
                     platform = if (item.title.contains("Story", ignoreCase = true)) "Story" else "Instagram",
-                    title = item.title,
+                    title = displayTitle,
                     progress = 0f,
                     status = QueueStatus.PENDING,
                     errorMessage = null,

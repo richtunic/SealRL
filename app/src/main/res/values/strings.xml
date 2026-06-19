@@ -42,6 +42,7 @@
     <string name="no_downloads_empty">No active or saved downloads</string>
     <string name="open_download_folder">Open download folder</string>
     <string name="local_file">Local file</string>
+    <string name="select_downloads">Select downloads</string>
 
     <!-- Metrics -->
     <string name="metric_total">Total</string>
