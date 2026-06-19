@@ -37,6 +37,11 @@ fun AppUpdater() {
     val scope = rememberCoroutineScope()
     var updateJob: Job? = null
     var release by remember { mutableStateOf(UpdateUtil.Release()) }
+    var showChangelogDialog by rememberSaveable { mutableStateOf(false) }
+    var changelogText by remember { mutableStateOf("") }
+    var changelogVersion by remember { mutableStateOf("") }
+    var changelogHtmlUrl by remember { mutableStateOf<String?>(null) }
+
     val settings =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             UpdateUtil.installLatestApk()
@@ -60,24 +65,59 @@ fun AppUpdater() {
         }
 
     LaunchedEffect(Unit) {
-        if (
-            !PreferenceUtil.isNetworkAvailableForDownload() || !PreferenceUtil.isAutoUpdateEnabled()
-        )
-            return@LaunchedEffect
+        // 1. Post-update check
+        val currentVersion = UpdateUtil.run { context.getCurrentVersion() }
+        val currentVersionName = currentVersion.toVersionName()
+        val lastRunVersionName = PreferenceUtil.getLastRunVersion()
+
+        if (lastRunVersionName.isEmpty()) {
+            PreferenceUtil.setLastRunVersion(currentVersionName)
+        } else if (lastRunVersionName != currentVersionName) {
+            val lastRunVersion = UpdateUtil.run { lastRunVersionName.toVersion() }
+            if (currentVersion > lastRunVersion) {
+                val tagName = "v$currentVersionName"
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val currentRelease = UpdateUtil.getReleaseByTagName(tagName)
+                        if (currentRelease != null) {
+                            val rawBody = currentRelease.body.toString()
+                            val systemLanguageCode = java.util.Locale.getDefault().language
+                            val extractedChangelog = UpdateUtil.extractChangelogForLanguage(rawBody, systemLanguageCode)
+                            withContext(Dispatchers.Main) {
+                                changelogText = extractedChangelog
+                                changelogVersion = currentVersionName
+                                changelogHtmlUrl = currentRelease.htmlUrl
+                                showChangelogDialog = true
+                            }
+                        }
+                    }.onFailure { it.printStackTrace() }
+                }
+            }
+            PreferenceUtil.setLastRunVersion(currentVersionName)
+        }
+
+        // 2. Startup update check
         withContext(Dispatchers.IO) {
             runCatching {
-                    UpdateUtil.checkForUpdate()?.let {
+                UpdateUtil.checkForUpdate()?.let {
+                    val skippedVersion = PreferenceUtil.getSkippedVersion()
+                    if (it.name.toString() != skippedVersion) {
                         release = it
                         showUpdateDialog = true
                     }
                 }
-                .onFailure { it.printStackTrace() }
+            }.onFailure { it.printStackTrace() }
         }
     }
 
     if (showUpdateDialog) {
         UpdateDialogImpl(
             onDismissRequest = {
+                showUpdateDialog = false
+                updateJob?.cancel()
+            },
+            onOmit = {
+                PreferenceUtil.setSkippedVersion(release.name.toString())
                 showUpdateDialog = false
                 updateJob?.cancel()
             },
@@ -108,6 +148,15 @@ fun AppUpdater() {
             },
             releaseNote = release.body.toString(),
             downloadStatus = currentDownloadStatus,
+        )
+    }
+
+    if (showChangelogDialog) {
+        ChangelogDialog(
+            onDismissRequest = { showChangelogDialog = false },
+            versionName = changelogVersion,
+            changelogText = changelogText,
+            htmlUrl = changelogHtmlUrl,
         )
     }
 }

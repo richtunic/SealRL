@@ -1,8 +1,13 @@
 package com.junkfood.seal.ui.page
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,8 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.junkfood.seal.R
+import com.junkfood.seal.util.PreferenceUtil
 import com.junkfood.seal.util.ToastUtil
 import com.junkfood.seal.util.UpdateUtil
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +50,10 @@ fun UpdateDialog(onDismissRequest: () -> Unit, release: UpdateUtil.Release) {
     val scope = rememberCoroutineScope()
     UpdateDialogImpl(
         onDismissRequest = onDismissRequest,
+        onOmit = {
+            PreferenceUtil.setSkippedVersion(release.name.toString())
+            onDismissRequest()
+        },
         title = release.name.toString(),
         onConfirmUpdate = {
             scope.launch(Dispatchers.IO) {
@@ -61,7 +72,7 @@ fun UpdateDialog(onDismissRequest: () -> Unit, release: UpdateUtil.Release) {
                         currentDownloadStatus = UpdateUtil.DownloadStatus.NotYet
                         ToastUtil.makeToastSuspend(context.getString(R.string.app_update_failed))
                         return@launch
-                    }
+                     }
             }
         },
         releaseNote = release.body.toString(),
@@ -72,6 +83,7 @@ fun UpdateDialog(onDismissRequest: () -> Unit, release: UpdateUtil.Release) {
 @Composable
 fun UpdateDialogImpl(
     onDismissRequest: () -> Unit,
+    onOmit: () -> Unit,
     title: String,
     onConfirmUpdate: () -> Unit,
     releaseNote: String,
@@ -97,11 +109,54 @@ fun UpdateDialogImpl(
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismissRequest) {
-                Text(text = stringResource(id = R.string.dismiss))
+            Row {
+                OutlinedButton(onClick = onOmit) {
+                    Text(text = stringResource(id = R.string.omit))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(id = R.string.dismiss))
+                }
             }
         },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) { Text(releaseNote) } },
+    )
+}
+
+@Composable
+fun ChangelogDialog(
+    onDismissRequest: () -> Unit,
+    versionName: String,
+    changelogText: String,
+    htmlUrl: String?,
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(R.string.whats_new_in, versionName)) },
+        icon = { Icon(Icons.Outlined.NewReleases, null) },
+        confirmButton = {
+            Button(onClick = onDismissRequest) {
+                Text(stringResource(R.string.close))
+            }
+        },
+        dismissButton = {
+            if (htmlUrl != null) {
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(htmlUrl))
+                        context.startActivity(intent)
+                    }
+                ) {
+                    Text(stringResource(R.string.view_on_github))
+                }
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(changelogText)
+            }
+        }
     )
 }
 
@@ -128,6 +183,7 @@ private fun Preview() {
 
     UpdateDialogImpl(
         onDismissRequest = { b = false },
+        onOmit = { b = false },
         title = "v1.12.0",
         onConfirmUpdate = { b = true },
         releaseNote = "ReleaseNoteHTML",

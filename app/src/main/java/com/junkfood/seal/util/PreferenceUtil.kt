@@ -82,6 +82,8 @@ const val USER_AGENT = "user_agent"
 const val USER_AGENT_STRING = "user_agent_string"
 const val AUTO_UPDATE = "auto_update"
 const val UPDATE_CHANNEL = "update_channel"
+const val SKIPPED_VERSION = "skipped_version"
+const val LAST_RUN_VERSION = "last_run_version"
 const val PRIVATE_MODE = "private_mode"
 private const val DYNAMIC_COLOR = "dynamic_color"
 const val CELLULAR_DOWNLOAD = "cellular_download"
@@ -313,6 +315,12 @@ object PreferenceUtil {
             else -> AUTO_UPDATE.getBoolean()
         }
     }
+
+    fun getSkippedVersion(): String = SKIPPED_VERSION.getString()
+    fun setSkippedVersion(version: String) = encodeString(SKIPPED_VERSION, version)
+
+    fun getLastRunVersion(): String = LAST_RUN_VERSION.getString()
+    fun setLastRunVersion(version: String) = encodeString(LAST_RUN_VERSION, version)
 
     @DeprecatedSinceApi(api = 33)
     fun getLocaleFromPreference(): Locale? {

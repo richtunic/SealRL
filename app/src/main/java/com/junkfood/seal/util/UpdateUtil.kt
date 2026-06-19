@@ -92,7 +92,65 @@ object UpdateUtil {
         return if (currentVersion < latestVersion) latestRelease else null
     }
 
-    private fun Context.getCurrentVersion(): Version =
+    suspend fun getReleaseByTagName(tagName: String): Release? =
+        withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url("https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/$tagName")
+                    .build()
+                client.newCall(request).execute().body.use {
+                    jsonFormat.decodeFromString<Release>(it.string())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+
+    fun extractChangelogForLanguage(body: String, languageCode: String): String {
+        val lines = body.lines()
+        val languageNames = when (languageCode.lowercase()) {
+            "es" -> listOf("es", "español", "spanish", "castellano", "cambios", "mejoras")
+            "en" -> listOf("en", "english", "changes", "changelog", "whatsnew")
+            "pt" -> listOf("pt", "português", "portuguese")
+            "fr" -> listOf("fr", "français", "french")
+            "de" -> listOf("de", "deutsch", "german")
+            "it" -> listOf("it", "italiano", "italian")
+            "zh" -> listOf("zh", "中文", "chinese", "简体中文", "繁体中文")
+            else -> listOf(languageCode)
+        }
+
+        var inSection = false
+        val sectionLines = mutableListOf<String>()
+        val headerPattern = Regex("""^#+\s+(.*)$""")
+
+        for (line in lines) {
+            val match = headerPattern.matchEntire(line.trim())
+            if (match != null) {
+                val headerText = match.groupValues[1].trim().lowercase()
+                val matchesLanguage = languageNames.any { name ->
+                    headerText == name || headerText.startsWith("$name ") || headerText.endsWith(" $name") || headerText.contains("($name)")
+                }
+                if (matchesLanguage) {
+                    inSection = true
+                    continue
+                } else if (inSection) {
+                    break
+                }
+            }
+            if (inSection) {
+                sectionLines.add(line)
+            }
+        }
+
+        val result = sectionLines.joinToString("\n").trim()
+        if (result.isNotEmpty()) {
+            return result
+        }
+        return body.trim()
+    }
+
+    fun Context.getCurrentVersion(): Version =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager
                 .getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
