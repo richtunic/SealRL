@@ -48,7 +48,7 @@ android {
         applicationId = "com.junkfood.searl"
         minSdk = 24
         targetSdk = 35
-        versionCode = 100_010_400
+        versionCode = 100_020_400
         check(versionCode == currentVersionCode)
 
         versionName = baseVersionName
