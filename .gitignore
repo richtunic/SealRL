@@ -17,5 +17,5 @@
 local.properties
 /keystore.properties
 .kotlin
-build_outputs/Seal-2.0.0-generic-universal-release.apk
+build_outputs/*universal*.apk
 SeaRL Logo.png
