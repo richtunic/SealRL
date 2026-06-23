@@ -192,6 +192,7 @@ object DownloadUtil {
                     e.printStackTrace()
                 }
             }
+            title = title.withInstagramAuthor(author)
 
             val syntheticInfo = VideoInfo(
                 id = "instagram_${url.hashCode()}",
@@ -235,6 +236,14 @@ object DownloadUtil {
                 extractorKey = "Threads",
             )
             return Result.success(syntheticInfo)
+        }
+
+        if (preferences.cookies && resolvedUrl.isTwitterUrl() && !hasTwitterAuthCookies()) {
+            return Result.failure(
+                Exception(
+                    "X/Twitter login cookies are missing auth_token and ct0. Open Cookies > X / Twitter and complete login, or import a cookies.txt with those cookies."
+                )
+            )
         }
 
         with(preferences) {
@@ -479,7 +488,9 @@ object DownloadUtil {
                     proxyUrl = PROXY_URL.getString(),
                     newTitle = "",
                     userAgentString =
-                        USER_AGENT_STRING.run { if (USER_AGENT.getBoolean()) getString() else "" },
+                        if (USER_AGENT.getBoolean()) {
+                            USER_AGENT_STRING.getString().ifEmpty { BRAVE_CHROMIUM_USER_AGENT }
+                        } else "",
                     outputTemplate = OUTPUT_TEMPLATE.getString(),
                     useDownloadArchive = DOWNLOAD_ARCHIVE.getBoolean(),
                     embedMetadata = EMBED_METADATA.getBoolean(),
@@ -503,6 +514,19 @@ object DownloadUtil {
 
     private fun YoutubeDLRequest.enableProxy(proxyUrl: String): YoutubeDLRequest =
         this.addOption("--proxy", proxyUrl)
+
+    private fun String.isTwitterUrl(): Boolean =
+        contains("twitter.com", ignoreCase = true) || contains("x.com", ignoreCase = true)
+
+    private fun hasTwitterAuthCookies(): Boolean {
+        val twitterCookies = getCookieListFromDatabase().getOrDefault(emptyList())
+            .filter { cookie ->
+                cookie.domain.endsWith("x.com", ignoreCase = true) ||
+                    cookie.domain.endsWith("twitter.com", ignoreCase = true)
+            }
+        return twitterCookies.any { it.name == "auth_token" && it.value.isNotBlank() } &&
+            twitterCookies.any { it.name == "ct0" && it.value.isNotBlank() }
+    }
 
     private fun YoutubeDLRequest.useDownloadArchive(): YoutubeDLRequest =
         this.addOption("--download-archive", context.getArchiveFile().absolutePath)
@@ -554,13 +578,17 @@ object DownloadUtil {
                         )
                         cookieList.add(cookie)
 
-                        // Duplicate X / Twitter cookies to ensure yt-dlp has access on both domains
-                        if (host.endsWith("x.com")) {
-                            val twitterHost = host.replace("x.com", "twitter.com")
-                            cookieList.add(cookie.copy(domain = twitterHost))
-                        } else if (host.endsWith("twitter.com")) {
-                            val xHost = host.replace("twitter.com", "x.com")
-                            cookieList.add(cookie.copy(domain = xHost))
+                        // X often bounces between web, mobile, and API hosts while resolving media.
+                        if (host.endsWith("x.com") || host.endsWith("twitter.com")) {
+                            setOf(
+                                ".x.com",
+                                ".twitter.com",
+                                ".api.x.com",
+                                ".api.twitter.com",
+                                ".mobile.twitter.com",
+                            )
+                                .filterNot { it == host }
+                                .forEach { cookieList.add(cookie.copy(domain = it)) }
                         }
                     }
                     close()
@@ -1260,7 +1288,7 @@ object DownloadUtil {
         sb.append("#ig_id=").append(id)
         try {
             val enc = "UTF-8"
-            sb.append("&ig_title=").append(java.net.URLEncoder.encode(title, enc))
+            sb.append("&ig_title=").append(java.net.URLEncoder.encode(title.withInstagramAuthor(author), enc))
             if (!thumbnailUrl.isNullOrEmpty()) {
                 sb.append("&ig_thumb=").append(java.net.URLEncoder.encode(thumbnailUrl, enc))
             }
@@ -1274,6 +1302,13 @@ object DownloadUtil {
             e.printStackTrace()
         }
         return sb.toString()
+    }
+
+    private fun String.withInstagramAuthor(author: String?): String {
+        val cleanAuthor = author?.takeIf {
+            it.isNotBlank() && !it.equals("Autor desconocido", ignoreCase = true)
+        } ?: return this
+        return if (contains(cleanAuthor, ignoreCase = true)) this else "$cleanAuthor - $this"
     }
 
     private fun resolveThreadsUrl(url: String): Pair<String, String?> {

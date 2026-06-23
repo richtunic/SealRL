@@ -80,6 +80,8 @@ const val ARIA2C = "aria2c"
 const val COOKIES = "cookies"
 const val USER_AGENT = "user_agent"
 const val USER_AGENT_STRING = "user_agent_string"
+const val BRAVE_CHROMIUM_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.101 Mobile Safari/537.36"
 const val AUTO_UPDATE = "auto_update"
 const val UPDATE_CHANNEL = "update_channel"
 const val SKIPPED_VERSION = "skipped_version"

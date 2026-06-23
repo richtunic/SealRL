@@ -140,6 +140,7 @@ class BulkDownloadWorker(
             }
             val webviewUserAgent = com.junkfood.seal.util.PreferenceUtil.run {
                 com.junkfood.seal.util.USER_AGENT_STRING.getString()
+                    .ifEmpty { com.junkfood.seal.util.BRAVE_CHROMIUM_USER_AGENT }
             }
             downloadPreferences = downloadPreferences.copy(
                 cookies = true,

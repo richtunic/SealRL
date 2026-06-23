@@ -15,6 +15,41 @@ object BulkUrlParser {
             .toList()
     }
 
+    fun addTrailingNewlineAfterUrlPaste(previousText: String, currentText: String): String {
+        if (currentText.length <= previousText.length + 1) return currentText
+
+        var prefixLength = 0
+        while (
+            prefixLength < previousText.length &&
+            prefixLength < currentText.length &&
+            previousText[prefixLength] == currentText[prefixLength]
+        ) {
+            prefixLength++
+        }
+
+        var suffixLength = 0
+        while (
+            suffixLength < previousText.length - prefixLength &&
+            suffixLength < currentText.length - prefixLength &&
+            previousText[previousText.lastIndex - suffixLength] ==
+                currentText[currentText.lastIndex - suffixLength]
+        ) {
+            suffixLength++
+        }
+
+        val insertEnd = currentText.length - suffixLength
+        val insertedText = currentText.substring(prefixLength, insertEnd)
+        if (!urlRegex.containsMatchIn(insertedText)) return currentText
+        if (insertedText.endsWith('\n') || insertedText.endsWith('\r')) return currentText
+        if (insertEnd < currentText.length && currentText[insertEnd] == '\n') return currentText
+
+        return buildString {
+            append(currentText.substring(0, insertEnd))
+            append('\n')
+            append(currentText.substring(insertEnd))
+        }
+    }
+
     private fun cleanUrl(url: String): String {
         return url
             .trim()

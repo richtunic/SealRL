@@ -139,22 +139,23 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
 
     fun onInputTextChange(text: String) {
         val oldText = _inputText.value
-        val lengthDiff = text.length - oldText.length
+        val textWithPasteBreak = BulkUrlParser.addTrailingNewlineAfterUrlPaste(oldText, text)
+        val lengthDiff = textWithPasteBreak.length - oldText.length
         val shouldFormat = when {
             lengthDiff > 1 -> true
             lengthDiff == 1 -> {
                 // Find the character that was added.
                 var addedChar: Char? = null
                 var i = 0
-                while (i < oldText.length && i < text.length) {
-                    if (oldText[i] != text[i]) {
-                        addedChar = text[i]
+                while (i < oldText.length && i < textWithPasteBreak.length) {
+                    if (oldText[i] != textWithPasteBreak[i]) {
+                        addedChar = textWithPasteBreak[i]
                         break
                     }
                     i++
                 }
-                if (addedChar == null && text.length > oldText.length) {
-                    addedChar = text.last()
+                if (addedChar == null && textWithPasteBreak.length > oldText.length) {
+                    addedChar = textWithPasteBreak.last()
                 }
                 addedChar?.isWhitespace() == true
             }
@@ -162,10 +163,10 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
         }
 
         if (shouldFormat) {
-            val preprocessed = insertNewlinesBeforeUrls(text)
+            val preprocessed = insertNewlinesBeforeUrls(textWithPasteBreak)
             _inputText.value = formatUrls(preprocessed)
         } else {
-            _inputText.value = text
+            _inputText.value = textWithPasteBreak
         }
     }
 

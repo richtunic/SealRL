@@ -833,7 +833,7 @@ fun SimpleMainScreen(
         if (showLoginDialog) {
             val platforms = listOf(
                 "Instagram" to "https://www.instagram.com",
-                "X / Twitter" to "https://x.com",
+                "X / Twitter" to "https://x.com/i/flow/login",
                 "Threads" to "https://www.threads.com"
             )
             var customUrl by remember { mutableStateOf("") }

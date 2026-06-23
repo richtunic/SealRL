@@ -3,6 +3,7 @@ package com.junkfood.seal.ui.page.settings.network
 import android.annotation.SuppressLint
 import android.util.Log
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -27,11 +29,51 @@ import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
 import com.google.android.material.R
+import com.junkfood.seal.util.BRAVE_CHROMIUM_USER_AGENT
 import com.junkfood.seal.util.PreferenceUtil.updateString
 import com.junkfood.seal.util.USER_AGENT_STRING
 import com.junkfood.seal.util.connectWithDelimiter
 
 private const val TAG = "WebViewPage"
+
+private fun CookieManager.hasCookie(url: String, name: String): Boolean =
+    getCookie(url)
+        ?.split(";")
+        ?.map { it.trim().substringBefore("=") }
+        ?.any { it == name } == true
+
+private fun CookieManager.persistentStartUrl(url: String): String {
+    return when {
+        url.contains("x.com", ignoreCase = true) || url.contains("twitter.com", ignoreCase = true) -> {
+            val hasXSession =
+                (hasCookie("https://x.com", "auth_token") && hasCookie("https://x.com", "ct0")) ||
+                    (hasCookie("https://twitter.com", "auth_token") && hasCookie("https://twitter.com", "ct0"))
+            if (hasXSession) {
+                "https://x.com/home"
+            } else {
+                "https://x.com/i/flow/login"
+            }
+        }
+
+        url.contains("instagram.com", ignoreCase = true) -> {
+            if (hasCookie("https://www.instagram.com", "sessionid")) {
+                "https://www.instagram.com/"
+            } else {
+                url
+            }
+        }
+
+        url.contains("threads.com", ignoreCase = true) || url.contains("threads.net", ignoreCase = true) -> {
+            if (hasCookie("https://www.threads.com", "sessionid")) {
+                "https://www.threads.com/"
+            } else {
+                url
+            }
+        }
+
+        else -> url
+    }
+}
 
 data class Cookie(
     val domain: String = "",
@@ -84,8 +126,14 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
 
     val cookieManager = CookieManager.getInstance()
     val cookieSet = remember { mutableSetOf<Cookie>() }
-    val websiteUrl = state.editingCookieProfile.url
+    val websiteUrl = remember(state.editingCookieProfile.url) {
+        cookieManager.persistentStartUrl(state.editingCookieProfile.url)
+    }
     val webViewState = rememberWebViewState(websiteUrl)
+
+    DisposableEffect(Unit) {
+        onDispose { cookieManager.flush() }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -112,6 +160,7 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
             object : AccompanistWebViewClient() {
                 override fun onPageFinished(view: WebView, url: String?) {
                     super.onPageFinished(view, url)
+                    cookieManager.flush()
                     if (url.isNullOrEmpty()) return
                 }
 
@@ -138,8 +187,15 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
                         javaScriptCanOpenWindowsAutomatically = true
                         javaScriptEnabled = true
                         domStorageEnabled = true
-                        USER_AGENT_STRING.updateString(userAgentString)
+                        databaseEnabled = true
+                        loadsImagesAutomatically = true
+                        mediaPlaybackRequiresUserGesture = false
+                        mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+                        userAgentString = BRAVE_CHROMIUM_USER_AGENT
+                        USER_AGENT_STRING.updateString(BRAVE_CHROMIUM_USER_AGENT)
                     }
+                    cookieManager.setAcceptCookie(true)
                     cookieManager.setAcceptThirdPartyCookies(this, true)
                 }
             },

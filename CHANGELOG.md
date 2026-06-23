@@ -5,6 +5,22 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.5] - 2026-06-23
+
+### Fixed
+
+- Restored X/Twitter video downloads by using a Brave/Chromium-compatible mobile user agent for login and yt-dlp requests.
+- Improved X/Twitter cookie handling across `x.com`, `twitter.com`, API, and mobile domains.
+- Added explicit X/Twitter session validation for `auth_token` and `ct0` so missing-login failures are reported clearly.
+- Improved WebView session persistence by reopening authenticated platform home pages instead of forcing login routes when valid cookies exist.
+- Preserved Instagram author metadata in generated titles for direct media, stories, photos, and videos.
+- Added automatic line breaks after pasted links without modifying the pasted URL.
+
+### Changed
+
+- X/Twitter cookie generation opens the login flow directly only when no authenticated session is detected.
+- WebView cookie flushing now also runs when leaving the cookie WebView.
+
 ## [v2.0.0][2.0.0] - unreleased
 
 ### Notable changes from v1.13

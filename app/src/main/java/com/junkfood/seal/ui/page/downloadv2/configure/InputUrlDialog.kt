@@ -75,6 +75,7 @@ import com.junkfood.seal.ui.component.OutlinedDismissButton
 import com.junkfood.seal.ui.component.SealDialog
 import com.junkfood.seal.ui.page.downloadv2.configure.DownloadDialogViewModel.Action
 import com.junkfood.seal.ui.theme.ErrorTonalPalettes
+import com.junkfood.seal.util.BulkUrlParser
 import com.junkfood.seal.util.findURLsFromString
 
 @Composable
@@ -147,7 +148,7 @@ private fun InputUrlPageImpl(
         )
         OutlinedTextField(
             value = url,
-            onValueChange = { url = it },
+            onValueChange = { url = BulkUrlParser.addTrailingNewlineAfterUrlPaste(url, it) },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp).padding(horizontal = 32.dp),
             label = { Text(stringResource(R.string.video_url)) },
             maxLines = 3,
@@ -167,7 +168,12 @@ private fun InputUrlPageImpl(
                 item(key = "paste url") {
                     SuggestionChip(
                         modifier = Modifier.animateItem(),
-                        onClick = { url = urlListFromClipboard.first() },
+                        onClick = {
+                            url = BulkUrlParser.addTrailingNewlineAfterUrlPaste(
+                                previousText = url,
+                                currentText = urlListFromClipboard.first(),
+                            )
+                        },
                         label = { Text(stringResource(R.string.paste_msg)) },
                         icon = {
                             Icon(
@@ -257,7 +263,7 @@ private fun InputUrlPageImpl(
                 icon = Icons.AutoMirrored.Outlined.ArrowForward,
                 text = stringResource(R.string.proceed),
             ) {
-                onActionPost(Action.ProceedWithURLs(listOf(url)))
+                onActionPost(Action.ProceedWithURLs(listOf(url.trim())))
             }
         }
     }
