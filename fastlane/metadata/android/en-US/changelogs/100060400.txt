@@ -1,0 +1,5 @@
+Added Facebook WebView login and automatic Facebook/Meta cookie export.
+Improved bulk link pasting so each URL stays on its own line.
+Fixed opening downloaded files when Android resolves file paths differently.
+Added clearer download errors that are easier for users to report.
+Update dialogs now show localized changelog sections when available.

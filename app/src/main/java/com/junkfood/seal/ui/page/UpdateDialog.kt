@@ -39,6 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun UpdateDialog(onDismissRequest: () -> Unit, release: UpdateUtil.Release) {
@@ -75,7 +76,11 @@ fun UpdateDialog(onDismissRequest: () -> Unit, release: UpdateUtil.Release) {
                      }
             }
         },
-        releaseNote = release.body.toString(),
+        releaseNote =
+            UpdateUtil.extractChangelogForLanguage(
+                body = release.body.toString(),
+                languageCode = Locale.getDefault().language,
+            ),
         downloadStatus = currentDownloadStatus,
     )
 }

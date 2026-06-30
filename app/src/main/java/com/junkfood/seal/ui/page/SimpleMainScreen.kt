@@ -19,7 +19,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -147,6 +149,15 @@ fun SimpleMainScreen(
 
     val bulkViewModel: BulkDownloadViewModel = koinViewModel()
     val inputText by bulkViewModel.inputText.collectAsStateWithLifecycle()
+    var inputFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    LaunchedEffect(inputText) {
+        if (inputText != inputFieldValue.text) {
+            inputFieldValue = TextFieldValue(
+                text = inputText,
+                selection = TextRange(inputText.length),
+            )
+        }
+    }
     val queueItems by bulkViewModel.queueItems.collectAsStateWithLifecycle()
     val metrics by bulkViewModel.metrics.collectAsStateWithLifecycle()
 
@@ -433,11 +444,14 @@ fun SimpleMainScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         OutlinedTextField(
-                            value = inputText,
-                            onValueChange = { bulkViewModel.onInputTextChange(it) },
+                            value = inputFieldValue,
+                            onValueChange = {
+                                inputFieldValue = it
+                                bulkViewModel.onInputTextChange(it.text)
+                            },
                             placeholder = {
                                 Text(
-                                    text = "https://instagram.com/reel/...\nhttps://x.com/status/...\nhttps://youtube.com/watch?v=...\nhttps://threads.net/...",
+                                    text = "https://instagram.com/reel/...\nhttps://x.com/status/...\nhttps://tiktok.com/...\nhttps://facebook.com/...",
                                     color = Color(0xFF666666)
                                 )
                             },
@@ -495,7 +509,10 @@ fun SimpleMainScreen(
                                 onClick = {
                                     val clipText = clipboardManager.getText()?.text
                                     if (!clipText.isNullOrBlank()) {
-                                        bulkViewModel.onInputTextChange(inputText + (if (inputText.isNotEmpty()) "\n" else "") + clipText)
+                                        val currentText = inputFieldValue.text
+                                        bulkViewModel.onInputTextChange(
+                                            currentText + (if (currentText.isNotEmpty()) "\n" else "") + clipText
+                                        )
                                     } else {
                                         Toast.makeText(context, context.getString(R.string.paste_fail_msg), Toast.LENGTH_SHORT).show()
                                     }
@@ -833,6 +850,7 @@ fun SimpleMainScreen(
         if (showLoginDialog) {
             val platforms = listOf(
                 "Instagram" to "https://www.instagram.com",
+                "Facebook" to "https://m.facebook.com/login/",
                 "X / Twitter" to "https://x.com/i/flow/login",
                 "Threads" to "https://www.threads.com"
             )

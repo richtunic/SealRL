@@ -1,0 +1,5 @@
+Se agregó inicio de sesión WebView para Facebook y exportación automática de cookies de Facebook/Meta.
+Se mejoró el pegado masivo de enlaces para que cada URL quede en su propia línea.
+Se corrigió la apertura de archivos descargados cuando Android resuelve rutas de otra forma.
+Se agregaron errores de descarga más claros y fáciles de reportar.
+El diálogo de actualización ahora muestra cambios localizados cuando están disponibles.

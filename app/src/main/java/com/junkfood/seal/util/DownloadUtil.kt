@@ -145,15 +145,6 @@ object DownloadUtil {
         taskKey: String? = null,
         preferences: DownloadPreferences = DownloadPreferences.createFromPreferences(),
     ): Result<VideoInfo> {
-        val isUnsupported = url.contains("tiktok.com", ignoreCase = true) ||
-                url.contains("douyin.com", ignoreCase = true) ||
-                url.contains("facebook.com", ignoreCase = true) ||
-                url.contains("fb.watch", ignoreCase = true) ||
-                url.contains("fb.gg", ignoreCase = true)
-        if (isUnsupported) {
-            return Result.failure(Exception("Plataforma no soportada"))
-        }
-
         val isDirectCdnUrl = url.contains("cdninstagram.com", ignoreCase = true) ||
                 url.contains("fbcdn.net", ignoreCase = true) ||
                 (url.contains("instagram.f", ignoreCase = true) && url.contains(".fna.fbcdn.net", ignoreCase = true))
@@ -846,14 +837,6 @@ object DownloadUtil {
             return Result.failure(Throwable(context.getString(R.string.fetch_info_error_msg)))
 
         val url = playlistUrl.ifEmpty { videoInfo.originalUrl ?: videoInfo.webpageUrl ?: "" }
-        val isUnsupported = url.contains("tiktok.com", ignoreCase = true) ||
-                url.contains("douyin.com", ignoreCase = true) ||
-                url.contains("facebook.com", ignoreCase = true) ||
-                url.contains("fb.watch", ignoreCase = true) ||
-                url.contains("fb.gg", ignoreCase = true)
-        if (isUnsupported) {
-            return Result.failure(Exception("Plataforma no soportada"))
-        }
 
         // --- Direct download path for ALL Threads/Instagram CDN media (video + image) ---
         // When resolveThreadsUrl successfully resolved a Threads post to a direct CDN URL,

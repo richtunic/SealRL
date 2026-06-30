@@ -146,7 +146,11 @@ fun AppUpdater() {
                             }
                     }
             },
-            releaseNote = release.body.toString(),
+            releaseNote =
+                UpdateUtil.extractChangelogForLanguage(
+                    body = release.body.toString(),
+                    languageCode = java.util.Locale.getDefault().language,
+                ),
             downloadStatus = currentDownloadStatus,
         )
     }

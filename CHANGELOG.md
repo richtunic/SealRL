@@ -5,6 +5,26 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.6] - 2026-06-29
+
+### Español
+
+- Se agregó inicio de sesión WebView para Facebook y exportación automática de cookies de Facebook/Meta.
+- Se mejoró el pegado masivo de enlaces: cada URL queda en su propia línea y el cursor avanza correctamente.
+- Se corrigió la apertura/reproducción de archivos descargados cuando Android cambia la forma de resolver la ruta.
+- Se mejoró la detección de archivos descargados cuando yt-dlp cambia el nombre final.
+- Se agregaron mensajes de error más claros y reportables para usuarios no técnicos.
+- El diálogo de actualización ahora muestra los cambios en el idioma del dispositivo cuando el release incluye secciones localizadas.
+
+### English
+
+- Added Facebook WebView login and automatic Facebook/Meta cookie export.
+- Improved bulk link pasting so each URL stays on its own line and the cursor moves correctly.
+- Fixed opening/playing downloaded files when Android resolves file paths differently.
+- Improved downloaded-file detection when yt-dlp changes the final filename.
+- Added clearer, report-friendly download errors for non-technical users.
+- The update dialog now shows changelog text in the device language when the release includes localized sections.
+
 ## [v1.0.5] - 2026-06-23
 
 ### Fixed
