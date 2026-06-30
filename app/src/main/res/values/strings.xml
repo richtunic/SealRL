@@ -13,7 +13,7 @@
     <string name="import_cookies_txt">Import cookies.txt</string>
     <string name="clear_cookies">Clear cookies</string>
     <string name="cookies_status">Cookies status</string>
-    <string name="paste_links_placeholder">Paste one or more links here:\nhttps://instagram.com/reel/...\nhttps://x.com/user/status/...</string>
+    <string name="paste_links_placeholder">Paste one or more links here:\nhttps://instagram.com/reel/...\nhttps://x.com/user/status/...\nhttps://tiktok.com/...\nhttps://facebook.com/...</string>
 
     <!-- SeaRL UI strings -->
     <!-- Tabs -->

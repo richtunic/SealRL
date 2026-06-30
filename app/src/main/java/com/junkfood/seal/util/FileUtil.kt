@@ -18,9 +18,11 @@ import java.io.File
 import okhttp3.internal.closeQuietly
 
 const val AUDIO_REGEX = "(mp3|aac|opus|m4a)$"
+const val MEDIA_REGEX = "\\.(mp4|mkv|webm|mov|m4v|mp3|aac|opus|m4a|jpg|jpeg|png|webp)$"
 const val THUMBNAIL_REGEX = "\\.(jpg|png)$"
 const val SUBTITLE_REGEX = "\\.(lrc|vtt|srt|ass|json3|srv.|ttml)$"
 private const val PRIVATE_DIRECTORY_SUFFIX = ".Seal"
+private const val RECENT_DOWNLOAD_WINDOW_MS = 10 * 60 * 1000L
 
 object FileUtil {
     fun openFileFromResult(downloadResult: Result<List<String>>) {
@@ -42,27 +44,46 @@ object FileUtil {
     private fun createIntentForFile(path: String?): Intent? {
         if (path == null) return null
 
-        val uri =
-            path
-                .runCatching {
-                    DocumentFile.fromSingleUri(context, Uri.parse(path)).run {
-                        if (this?.exists() == true) {
-                            this.uri
-                        } else if (File(this@runCatching).exists()) {
-                            FileProvider.getUriForFile(
-                                context,
-                                context.getFileProvider(),
-                                File(this@runCatching),
-                            )
-                        } else null
-                    }
-                }
-                .getOrNull() ?: return null
+        val uri = resolveUriForPath(path) ?: return null
+        val mimeType = context.contentResolver.getType(uri) ?: getMimeType(path)
 
         return Intent().apply {
             flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            data = uri
+            setDataAndType(uri, mimeType)
         }
+    }
+
+    private fun resolveUriForPath(path: String): Uri? =
+        runCatching {
+                val parsedUri = Uri.parse(path)
+                if (parsedUri.scheme == "content") {
+                    DocumentFile.fromSingleUri(context, parsedUri)?.takeIf { it.exists() }?.uri
+                        ?: parsedUri
+                } else {
+                    val file = File(path)
+                    val existingFile =
+                        if (file.exists()) {
+                            file
+                        } else {
+                            findDownloadedFileByName(file.name)
+                        }
+                    existingFile?.let {
+                        FileProvider.getUriForFile(context, context.getFileProvider(), it)
+                    }
+                }
+            }
+            .getOrNull()
+
+    private fun findDownloadedFileByName(fileName: String): File? {
+        if (fileName.isBlank()) return null
+        return getExternalDownloadDirectory()
+            .walkTopDown()
+            .firstOrNull { it.isFile && it.name == fileName }
+    }
+
+    private fun getMimeType(path: String): String {
+        val extension = path.substringBefore("#").substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "media/*"
     }
 
     fun createIntentForOpeningFile(path: String?): Intent? =
@@ -77,7 +98,7 @@ object FileUtil {
         createIntentForFile(path)?.apply {
             action = Intent.ACTION_SEND
             putExtra(Intent.EXTRA_STREAM, data)
-            val mimeType = data?.let { context.contentResolver.getType(it) } ?: "media/*"
+            val mimeType = type ?: data?.let { context.contentResolver.getType(it) } ?: "media/*"
             setDataAndType(this.data, mimeType)
             clipData = ClipData(null, arrayOf(mimeType), ClipData.Item(data))
         }
@@ -104,18 +125,46 @@ object FileUtil {
         }
 
     @CheckResult
-    fun scanFileToMediaLibraryPostDownload(title: String, downloadDir: String): List<String> =
-        File(downloadDir)
-            .walkTopDown()
-            .filter { it.isFile && it.absolutePath.contains(title) }
+    fun scanFileToMediaLibraryPostDownload(title: String, downloadDir: String): List<String> {
+        val dir = File(downloadDir)
+        val titleMatches =
+            dir
+                .walkTopDown()
+                .filter { it.isFile && title.isNotBlank() && it.absolutePath.contains(title) }
+                .toList()
+
+        val now = System.currentTimeMillis()
+        val files =
+            titleMatches.ifEmpty {
+                dir
+                    .walkTopDown()
+                    .filter {
+                        it.isFile &&
+                            it.name.contains(Regex(MEDIA_REGEX, RegexOption.IGNORE_CASE)) &&
+                            now - it.lastModified() <= RECENT_DOWNLOAD_WINDOW_MS
+                    }
+                    .sortedByDescending { it.lastModified() }
+                    .toList()
+            }
+
+        return files
+            .onEach { file ->
+                try {
+                    file.setLastModified(System.currentTimeMillis())
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             .map { it.absolutePath }
             .toMutableList()
             .apply {
                 MediaScannerConnection.scanFile(context, this.toList().toTypedArray(), null, null)
                 removeAll {
-                    it.contains(Regex(THUMBNAIL_REGEX)) || it.contains(Regex(SUBTITLE_REGEX))
+                    it.contains(Regex(THUMBNAIL_REGEX, RegexOption.IGNORE_CASE)) ||
+                        it.contains(Regex(SUBTITLE_REGEX, RegexOption.IGNORE_CASE))
                 }
             }
+    }
 
     fun scanDownloadDirectoryToMediaLibrary(downloadDir: String) =
         File(downloadDir)

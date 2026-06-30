@@ -1,11 +1,13 @@
 package com.junkfood.seal.ui.page.settings.network
 
 import android.annotation.SuppressLint
+import android.os.Message
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebResourceRequest
-import android.webkit.WebView
+import android.webkit.WebView as AndroidWebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -30,11 +32,15 @@ import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
 import com.google.android.material.R
 import com.junkfood.seal.util.BRAVE_CHROMIUM_USER_AGENT
+import com.junkfood.seal.util.FileUtil
+import com.junkfood.seal.util.FileUtil.getCookiesFile
+import com.junkfood.seal.util.PreferenceUtil.COOKIE_HEADER
 import com.junkfood.seal.util.PreferenceUtil.updateString
 import com.junkfood.seal.util.USER_AGENT_STRING
 import com.junkfood.seal.util.connectWithDelimiter
 
 private const val TAG = "WebViewPage"
+private const val SESSION_COOKIE_EXPIRY = 1893456000L
 
 private fun CookieManager.hasCookie(url: String, name: String): Boolean =
     getCookie(url)
@@ -44,6 +50,18 @@ private fun CookieManager.hasCookie(url: String, name: String): Boolean =
 
 private fun CookieManager.persistentStartUrl(url: String): String {
     return when {
+        url.contains("facebook.com", ignoreCase = true) || url.contains("fb.com", ignoreCase = true) -> {
+            val hasFacebookSession =
+                hasCookie("https://www.facebook.com", "c_user") ||
+                    hasCookie("https://m.facebook.com", "c_user") ||
+                    hasCookie("https://facebook.com", "c_user")
+            if (hasFacebookSession) {
+                "https://m.facebook.com/"
+            } else {
+                "https://m.facebook.com/login/"
+            }
+        }
+
         url.contains("x.com", ignoreCase = true) || url.contains("twitter.com", ignoreCase = true) -> {
             val hasXSession =
                 (hasCookie("https://x.com", "auth_token") && hasCookie("https://x.com", "ct0")) ||
@@ -82,7 +100,7 @@ data class Cookie(
     val includeSubdomains: Boolean = true,
     val path: String = "/",
     val secure: Boolean = true,
-    val expiry: Long = 0L,
+    val expiry: Long = SESSION_COOKIE_EXPIRY,
 ) {
     constructor(
         url: String,
@@ -111,9 +129,79 @@ private fun String.toDomain(): String {
 }
 
 private fun makeCookie(url: String, cookieString: String): Cookie {
-    cookieString.split("=").run {
-        return Cookie(url = url, name = first(), value = last())
+    cookieString.split("=", limit = 2).run {
+        return Cookie(url = url, name = first(), value = getOrElse(1) { "" })
     }
+}
+
+private fun String.cookieHost(): String =
+    removePrefix("https://")
+        .removePrefix("http://")
+        .substringBefore("/")
+        .substringBefore(":")
+
+private fun String.netscapeCookieDomain(): String {
+    val host = cookieHost().removePrefix("www.").removePrefix("m.").removePrefix("mbasic.").removePrefix("web.")
+    return if (host.startsWith(".")) host else ".$host"
+}
+
+private fun cookieDomainsForUrl(url: String): List<String> =
+    when {
+        url.contains("facebook.com", ignoreCase = true) || url.contains("fb.com", ignoreCase = true) ->
+            listOf(
+                "https://facebook.com",
+                "https://www.facebook.com",
+                "https://m.facebook.com",
+                "https://mbasic.facebook.com",
+                "https://web.facebook.com",
+            )
+
+        url.contains("instagram.com", ignoreCase = true) ->
+            listOf("https://instagram.com", "https://www.instagram.com")
+
+        url.contains("threads.com", ignoreCase = true) || url.contains("threads.net", ignoreCase = true) ->
+            listOf(
+                "https://threads.com",
+                "https://www.threads.com",
+                "https://threads.net",
+                "https://www.threads.net",
+                "https://instagram.com",
+                "https://www.instagram.com",
+            )
+
+        url.contains("x.com", ignoreCase = true) || url.contains("twitter.com", ignoreCase = true) ->
+            listOf("https://x.com", "https://twitter.com", "https://mobile.twitter.com")
+
+        else -> listOf(url)
+    }
+
+private fun CookieManager.exportCookiesForUrl(url: String): String {
+    val cookies =
+        cookieDomainsForUrl(url)
+            .flatMap { domainUrl ->
+                getCookie(domainUrl)
+                    ?.split(";")
+                    ?.mapNotNull { rawCookie ->
+                        val parts = rawCookie.trim().split("=", limit = 2)
+                        val name = parts.firstOrNull()?.trim().orEmpty()
+                        val value = parts.getOrNull(1).orEmpty()
+                        if (name.isBlank() || value.isBlank()) {
+                            null
+                        } else {
+                            Cookie(
+                                domain = domainUrl.netscapeCookieDomain(),
+                                name = name,
+                                value = value,
+                            )
+                        }
+                    }
+                    .orEmpty()
+            }
+            .distinctBy { "${it.domain}:${it.name}" }
+
+    return if (cookies.isEmpty()) "" else cookies.fold(StringBuilder(COOKIE_HEADER)) { acc, cookie ->
+        acc.append(cookie.toNetscapeCookieString()).append("\n")
+    }.toString()
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -126,13 +214,19 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
 
     val cookieManager = CookieManager.getInstance()
     val cookieSet = remember { mutableSetOf<Cookie>() }
+    val profileUrl = state.editingCookieProfile.url
     val websiteUrl = remember(state.editingCookieProfile.url) {
         cookieManager.persistentStartUrl(state.editingCookieProfile.url)
     }
     val webViewState = rememberWebViewState(websiteUrl)
 
     DisposableEffect(Unit) {
-        onDispose { cookieManager.flush() }
+        onDispose {
+            cookieManager.flush()
+            cookieManager.exportCookiesForUrl(profileUrl).takeIf { it.isNotBlank() }?.let {
+                FileUtil.writeContentToFile(it, com.junkfood.seal.App.context.getCookiesFile())
+            }
+        }
     }
 
     Scaffold(
@@ -158,14 +252,17 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
     ) { paddingValues ->
         val webViewClient = remember {
             object : AccompanistWebViewClient() {
-                override fun onPageFinished(view: WebView, url: String?) {
+                override fun onPageFinished(view: AndroidWebView, url: String?) {
                     super.onPageFinished(view, url)
                     cookieManager.flush()
+                    cookieManager.exportCookiesForUrl(profileUrl).takeIf { it.isNotBlank() }?.let {
+                        FileUtil.writeContentToFile(it, view.context.getCookiesFile())
+                    }
                     if (url.isNullOrEmpty()) return
                 }
 
                 override fun shouldOverrideUrlLoading(
-                    view: WebView?,
+                    view: AndroidWebView?,
                     request: WebResourceRequest?,
                 ): Boolean {
                     return if (request?.url?.scheme?.contains("http") == true)
@@ -174,7 +271,45 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
                 }
             }
         }
-        val webViewChromeClient = remember { object : AccompanistWebChromeClient() {} }
+        val webViewChromeClient = remember {
+            object : AccompanistWebChromeClient() {
+                override fun onCreateWindow(
+                    view: AndroidWebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message?,
+                ): Boolean {
+                    val parent = view ?: return false
+                    val popup = AndroidWebView(parent.context).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
+                        settings.loadsImagesAutomatically = true
+                        settings.javaScriptCanOpenWindowsAutomatically = true
+                        settings.setSupportMultipleWindows(true)
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                        settings.userAgentString = BRAVE_CHROMIUM_USER_AGENT
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        setWebViewClient(
+                            object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    popupView: AndroidWebView?,
+                                    request: WebResourceRequest?,
+                                ): Boolean {
+                                    val targetUrl = request?.url?.toString() ?: return false
+                                    parent.loadUrl(targetUrl)
+                                    return true
+                                }
+                            }
+                        )
+                    }
+                    val transport = resultMsg?.obj as? AndroidWebView.WebViewTransport ?: return false
+                    transport.webView = popup
+                    resultMsg.sendToTarget()
+                    return true
+                }
+            }
+        }
         WebView(
             state = webViewState,
             client = webViewClient,
@@ -182,7 +317,7 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
             modifier = Modifier.padding(paddingValues).fillMaxSize(),
             captureBackPresses = true,
             factory = { context ->
-                WebView(context).apply {
+                AndroidWebView(context).apply {
                     settings.run {
                         javaScriptCanOpenWindowsAutomatically = true
                         javaScriptEnabled = true
@@ -190,6 +325,7 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
                         databaseEnabled = true
                         loadsImagesAutomatically = true
                         mediaPlaybackRequiresUserGesture = false
+                        setSupportMultipleWindows(true)
                         mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
                         userAgentString = BRAVE_CHROMIUM_USER_AGENT

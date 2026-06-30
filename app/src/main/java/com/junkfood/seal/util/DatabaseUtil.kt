@@ -79,7 +79,8 @@ object DatabaseUtil {
     fun isUrlAlreadyDownloaded(url: String, history: List<DownloadedVideoInfo>): DownloadedVideoInfo? {
         val canonicalUrl = BulkUrlParser.getCanonicalUrl(url)
         return history.firstOrNull {
-            BulkUrlParser.getCanonicalUrl(it.videoUrl) == canonicalUrl && java.io.File(it.videoPath).exists()
+            BulkUrlParser.getCanonicalUrl(it.videoUrl) == canonicalUrl &&
+                FileUtil.createIntentForOpeningFile(it.videoPath) != null
         }
     }
 
@@ -88,7 +89,7 @@ object DatabaseUtil {
         return history.any { historyItem ->
             (historyItem.videoUrl.contains("#ig_id=$itemId") ||
              historyItem.videoPath.substringAfterLast("/").contains(itemId)) &&
-            java.io.File(historyItem.videoPath).exists()
+            FileUtil.createIntentForOpeningFile(historyItem.videoPath) != null
         }
     }
 

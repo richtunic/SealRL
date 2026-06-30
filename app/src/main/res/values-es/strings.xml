@@ -13,7 +13,7 @@
     <string name="import_cookies_txt">Importar cookies.txt</string>
     <string name="clear_cookies">Eliminar cookies</string>
     <string name="cookies_status">Estado de cookies</string>
-    <string name="paste_links_placeholder">Pega uno o más enlaces aquí:\nhttps://instagram.com/reel/...\nhttps://x.com/usuario/status/...</string>
+    <string name="paste_links_placeholder">Pega uno o más enlaces aquí:\nhttps://instagram.com/reel/...\nhttps://x.com/usuario/status/...\nhttps://tiktok.com/...\nhttps://facebook.com/...</string>
     <string name="paste_desc">Haz clic en el botón de «Pegar» para obtener el enlace desde tu portapapeles.</string>
     <string name="battery_settings_desc">Para descargar en segundo plano, por favor cambia el ajuste de uso de batería en los ajustes del teléfono a «No restringir».</string>
     <string name="yt_dlp_update_fail">No se pudo instalar la última versión de yt-dlp. Por favor asegúrate de estar conectado al Internet.</string>

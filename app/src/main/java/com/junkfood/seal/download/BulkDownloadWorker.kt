@@ -86,7 +86,11 @@ class BulkDownloadWorker(
             currentItem?.let {
                 queueDao.update(it.copy(
                     status = QueueStatus.FAILED,
-                    errorMessage = e.message ?: "Ocurrió un error inesperado",
+                    errorMessage = buildUserFriendlyErrorMessage(
+                        item = it,
+                        stage = ErrorStage.Queue,
+                        throwable = e,
+                    ),
                     updatedAt = System.currentTimeMillis()
                 ))
             }
@@ -160,7 +164,11 @@ class BulkDownloadWorker(
                 val th = infoResult.exceptionOrNull()
                 queueDao.update(current.copy(
                     status = QueueStatus.FAILED,
-                    errorMessage = th?.message ?: "Error al obtener info del video",
+                    errorMessage = buildUserFriendlyErrorMessage(
+                        item = current,
+                        stage = ErrorStage.FetchInfo,
+                        throwable = th,
+                    ),
                     updatedAt = System.currentTimeMillis()
                 ))
                 return
@@ -201,7 +209,11 @@ class BulkDownloadWorker(
                 val th = finalDownloadResult.exceptionOrNull()
                 queueDao.update(current.copy(
                     status = QueueStatus.FAILED,
-                    errorMessage = th?.message ?: "Error al descargar el video",
+                    errorMessage = buildUserFriendlyErrorMessage(
+                        item = current,
+                        stage = ErrorStage.Download,
+                        throwable = th,
+                    ),
                     updatedAt = System.currentTimeMillis()
                 ))
                 return
@@ -209,6 +221,18 @@ class BulkDownloadWorker(
 
             val pathList = finalDownloadResult.getOrThrow()
             val downloadedPath = pathList.firstOrNull() ?: ""
+            if (downloadedPath.isBlank()) {
+                queueDao.update(current.copy(
+                    status = QueueStatus.FAILED,
+                    errorMessage = buildUserFriendlyErrorMessage(
+                        item = current,
+                        stage = ErrorStage.SaveFile,
+                        throwable = null,
+                    ),
+                    updatedAt = System.currentTimeMillis()
+                ))
+                return
+            }
 
             // Mark as completed
             queueDao.update(current.copy(
@@ -234,6 +258,186 @@ class BulkDownloadWorker(
         } finally {
             cancellationListener.cancel()
         }
+    }
+
+    private enum class ErrorStage(val label: String) {
+        Queue("cola"),
+        FetchInfo("lectura del enlace"),
+        Download("descarga"),
+        SaveFile("guardado"),
+    }
+
+    private fun buildUserFriendlyErrorMessage(
+        item: QueueItemEntity,
+        stage: ErrorStage,
+        throwable: Throwable?,
+    ): String {
+        val rawMessage = throwable?.message.orEmpty()
+        val normalized = rawMessage.lowercase()
+        val httpCode = Regex("""(?i)\b(?:http\s*)?(?:error\s*)?([45]\d{2})\b""")
+            .find(rawMessage)
+            ?.groupValues
+            ?.getOrNull(1)
+
+        val mainMessage =
+            when {
+                stage == ErrorStage.SaveFile ->
+                    "La descarga terminó, pero SeaRL no encontró el archivo guardado."
+
+                normalized.contains("login") ||
+                    normalized.contains("sign in") ||
+                    normalized.contains("log in") ||
+                    normalized.contains("authentication") ||
+                    normalized.contains("authenticate") ||
+                    normalized.contains("auth_token") ||
+                    normalized.contains("cookies") ||
+                    normalized.contains("private") ||
+                    normalized.contains("not authorized") ||
+                    normalized.contains("authorization") ||
+                    normalized.contains("confirm your age") ||
+                    normalized.contains("age-restricted") ->
+                    "Este enlace parece requerir inicio de sesión o permisos de la cuenta."
+
+                normalized.contains("unsupported url") ||
+                    normalized.contains("no suitable extractor") ||
+                    normalized.contains("not a valid url") ||
+                    normalized.contains("invalid url") ||
+                    normalized.contains("url could be a direct video link") ->
+                    "SeaRL no reconoce este tipo de enlace."
+
+                normalized.contains("video unavailable") ||
+                    normalized.contains("not available") ||
+                    normalized.contains("removed") ||
+                    normalized.contains("deleted") ||
+                    normalized.contains("does not exist") ||
+                    normalized.contains("content isn't available") ||
+                    normalized.contains("content is not available") ||
+                    normalized.contains("this content is unavailable") ->
+                    "El video no está disponible públicamente o fue eliminado."
+
+                normalized.contains("no video formats") ||
+                    normalized.contains("requested format is not available") ||
+                    normalized.contains("format is not available") ||
+                    normalized.contains("no media found") ||
+                    normalized.contains("no downloadable media") ->
+                    "No se encontró una versión descargable del video."
+
+                normalized.contains("unable to extract") ||
+                    normalized.contains("could not extract") ||
+                    normalized.contains("failed to extract") ||
+                    normalized.contains("did not match pattern") ||
+                    normalized.contains("extractor failed") ->
+                    "La plataforma cambió la forma en que entrega el video y SeaRL no pudo leerlo."
+
+                httpCode == "401" || httpCode == "403" ->
+                    "La plataforma rechazó el acceso al video."
+
+                httpCode == "404" ->
+                    "La plataforma indica que el enlace no existe o ya no está disponible."
+
+                httpCode == "429" ||
+                    httpCode == "503" ||
+                    normalized.contains("too many requests") ||
+                    normalized.contains("rate-limit") ||
+                    normalized.contains("rate limit") ||
+                    normalized.contains("temporarily unavailable") ->
+                    "La plataforma bloqueó temporalmente demasiados intentos."
+
+                normalized.contains("timeout") ||
+                    normalized.contains("timed out") ||
+                    normalized.contains("failed to connect") ||
+                    normalized.contains("unable to download webpage") ||
+                    normalized.contains("unable to download api page") ||
+                    normalized.contains("no address associated") ||
+                    normalized.contains("network is unreachable") ||
+                    normalized.contains("connection reset") ||
+                    normalized.contains("connection refused") ->
+                    "No se pudo conectar con la plataforma."
+
+                normalized.contains("unable to rename") ||
+                    normalized.contains("unable to open for writing") ||
+                    normalized.contains("file name too long") ->
+                    "SeaRL no pudo crear el archivo de salida en el dispositivo."
+
+                normalized.contains("no space") ||
+                    normalized.contains("enospc") ->
+                    "No hay espacio suficiente para guardar el archivo."
+
+                normalized.contains("permission denied") ||
+                    normalized.contains("eacces") ->
+                    "SeaRL no tiene permiso para guardar o leer el archivo."
+
+                item.platform.equals("Facebook", ignoreCase = true) ->
+                    "Facebook no entregó un video descargable para este enlace."
+
+                else ->
+                    "No se pudo completar esta descarga."
+            }
+
+        val action =
+            when {
+                mainMessage.contains("inicio de sesión") ->
+                    "Abre Ajustes > Iniciar sesión (WebView), inicia sesión en ${item.platform} y vuelve a intentar."
+
+                mainMessage.contains("no reconoce") ->
+                    "Copia el enlace directo del post/video y prueba de nuevo."
+
+                mainMessage.contains("no está disponible") ||
+                    mainMessage.contains("no existe") ->
+                    "Verifica que el enlace abra en el navegador y que el contenido siga publicado."
+
+                mainMessage.contains("versión descargable") ->
+                    "Prueba desactivar 'Solo descargar audio' o intenta con otro enlace del mismo video."
+
+                mainMessage.contains("cambió la forma") ->
+                    "Esto normalmente requiere actualizar yt-dlp o reportar el enlace para revisar el extractor."
+
+                mainMessage.contains("rechazó") ->
+                    "Inicia sesión en WebView o prueba más tarde; puede ser contenido privado o limitado por la plataforma."
+
+                mainMessage.contains("bloqueó temporalmente") ->
+                    "Espera unos minutos antes de reintentar."
+
+                mainMessage.contains("conectar") ->
+                    "Revisa tu conexión y vuelve a intentarlo."
+
+                mainMessage.contains("espacio") ->
+                    "Libera espacio en el dispositivo y reintenta."
+
+                mainMessage.contains("permiso") ->
+                    "Revisa los permisos de almacenamiento de SeaRL."
+
+                mainMessage.contains("archivo de salida") ->
+                    "Prueba con un título más corto, otra carpeta de descarga o libera permisos de almacenamiento."
+
+                item.platform.equals("Facebook", ignoreCase = true) ->
+                    "Asegúrate de haber iniciado sesión en Facebook desde WebView y reporta este enlace si sigue fallando."
+
+                else ->
+                    "Intenta de nuevo. Si se repite, reporta el enlace."
+            }
+
+        val reportDetail = buildString {
+            append("Reporte: ")
+            append(item.platform)
+            append(" / ")
+            append(stage.label)
+            httpCode?.let {
+                append(" / HTTP ")
+                append(it)
+            }
+            val compactRaw = rawMessage
+                .lineSequence()
+                .firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?.take(90)
+            if (!compactRaw.isNullOrEmpty()) {
+                append(" / ")
+                append(compactRaw)
+            }
+        }
+
+        return "$mainMessage $action\n$reportDetail"
     }
 
 

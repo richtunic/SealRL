@@ -139,23 +139,23 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
 
     fun onInputTextChange(text: String) {
         val oldText = _inputText.value
-        val textWithPasteBreak = BulkUrlParser.addTrailingNewlineAfterUrlPaste(oldText, text)
-        val lengthDiff = textWithPasteBreak.length - oldText.length
+        val normalizedText = BulkUrlParser.normalizePastedUrls(oldText, text)
+        val lengthDiff = normalizedText.length - oldText.length
         val shouldFormat = when {
             lengthDiff > 1 -> true
             lengthDiff == 1 -> {
                 // Find the character that was added.
                 var addedChar: Char? = null
                 var i = 0
-                while (i < oldText.length && i < textWithPasteBreak.length) {
-                    if (oldText[i] != textWithPasteBreak[i]) {
-                        addedChar = textWithPasteBreak[i]
+                while (i < oldText.length && i < normalizedText.length) {
+                    if (oldText[i] != normalizedText[i]) {
+                        addedChar = normalizedText[i]
                         break
                     }
                     i++
                 }
-                if (addedChar == null && textWithPasteBreak.length > oldText.length) {
-                    addedChar = textWithPasteBreak.last()
+                if (addedChar == null && normalizedText.length > oldText.length) {
+                    addedChar = normalizedText.last()
                 }
                 addedChar?.isWhitespace() == true
             }
@@ -163,10 +163,9 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
         }
 
         if (shouldFormat) {
-            val preprocessed = insertNewlinesBeforeUrls(textWithPasteBreak)
-            _inputText.value = formatUrls(preprocessed)
+            _inputText.value = BulkUrlParser.formatInputText(normalizedText)
         } else {
-            _inputText.value = textWithPasteBreak
+            _inputText.value = normalizedText
         }
     }
 
