@@ -2,8 +2,13 @@ package com.junkfood.seal.ui.page.downloadv2.configure
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.TransferableContent
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -127,6 +132,7 @@ private fun InputUrlPreview() {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun InputUrlPageImpl(
     modifier: Modifier = Modifier,
     urlListFromClipboard: List<String>,
@@ -148,8 +154,30 @@ private fun InputUrlPageImpl(
         )
         OutlinedTextField(
             value = url,
-            onValueChange = { url = BulkUrlParser.addTrailingNewlineAfterUrlPaste(url, it) },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).padding(horizontal = 32.dp),
+            onValueChange = { url = it },
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .padding(horizontal = 32.dp)
+                    .contentReceiver(
+                        remember {
+                            ReceiveContentListener { content ->
+                                if (content.source != TransferableContent.Source.Clipboard) {
+                                    return@ReceiveContentListener content
+                                }
+
+                                content.consume { item ->
+                                    val pastedText = item.text?.toString() ?: return@consume false
+                                    url =
+                                        BulkUrlParser.addTrailingNewlineAfterUrlPaste(
+                                            previousText = url,
+                                            currentText = url + pastedText,
+                                        )
+                                    true
+                                }
+                            }
+                        }
+                    ),
             label = { Text(stringResource(R.string.video_url)) },
             maxLines = 3,
             trailingIcon = {
@@ -169,10 +197,11 @@ private fun InputUrlPageImpl(
                     SuggestionChip(
                         modifier = Modifier.animateItem(),
                         onClick = {
-                            url = BulkUrlParser.addTrailingNewlineAfterUrlPaste(
-                                previousText = url,
-                                currentText = urlListFromClipboard.first(),
-                            )
+                            url =
+                                BulkUrlParser.addTrailingNewlineAfterUrlPaste(
+                                    previousText = url,
+                                    currentText = url + urlListFromClipboard.first(),
+                                )
                         },
                         label = { Text(stringResource(R.string.paste_msg)) },
                         icon = {

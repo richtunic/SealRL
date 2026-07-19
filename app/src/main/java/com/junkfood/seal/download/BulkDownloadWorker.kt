@@ -39,6 +39,7 @@ class BulkDownloadWorker(
     companion object {
         private const val NOTIFICATION_ID = 23456
         private const val CHANNEL_ID = "download_notification"
+        const val FORCE_REDOWNLOAD_PREFIX = "searl-force-redownload:"
     }
 
     override suspend fun doWork(): ListenableWorker.Result = withContext(Dispatchers.IO) {
@@ -103,8 +104,11 @@ class BulkDownloadWorker(
     }
 
     private suspend fun processItem(item: QueueItemEntity, historyCache: MutableList<DownloadedVideoInfo>) {
+        val forceRedownload = item.url.startsWith(FORCE_REDOWNLOAD_PREFIX)
+        val effectiveUrl = item.url.removePrefix(FORCE_REDOWNLOAD_PREFIX)
         // Mark as downloading
         var current = item.copy(
+            url = effectiveUrl,
             status = QueueStatus.DOWNLOADING,
             progress = 0f,
             updatedAt = System.currentTimeMillis()
@@ -125,8 +129,45 @@ class BulkDownloadWorker(
         }
 
         try {
+            if (effectiveUrl.contains("#searl_photo_mode=")) {
+                val asVideo = effectiveUrl.substringAfter("#searl_photo_mode=").startsWith("video")
+                val sourceUrl = effectiveUrl.substringBefore('#')
+                val post = DownloadUtil.fetchTikTokPhotoPost(sourceUrl)
+                    ?: error("No se pudieron obtener las fotos de TikTok")
+                val paths = DownloadUtil.downloadTikTokPhotoPost(post, asVideo).getOrThrow()
+                val completedAt = System.currentTimeMillis()
+                queueDao.update(
+                    current.copy(
+                        status = QueueStatus.COMPLETED,
+                        progress = 1f,
+                        outputPath = paths.firstOrNull(),
+                        completedAt = completedAt,
+                        updatedAt = completedAt,
+                    )
+                )
+                paths.forEachIndexed { index, path ->
+                    val historyInfo =
+                        DownloadedVideoInfo(
+                            id = 0,
+                            videoTitle =
+                                if (paths.size == 1) post.title
+                                else "${post.title} (${index + 1})",
+                            videoAuthor = "TikTok",
+                            videoUrl = sourceUrl,
+                            thumbnailUrl = post.imageUrls.firstOrNull().orEmpty(),
+                            videoPath = path,
+                            extractor = "TikTok",
+                        )
+                    DatabaseUtil.insertInfo(historyInfo)
+                    historyCache.add(historyInfo)
+                }
+                return
+            }
+
             // Check if already downloaded
-            val historyRecord = DatabaseUtil.isUrlAlreadyDownloaded(item.url, historyCache)
+            val historyRecord =
+                if (forceRedownload) null
+                else DatabaseUtil.isUrlAlreadyDownloaded(effectiveUrl, historyCache)
             if (historyRecord != null) {
                 queueDao.update(current.copy(
                     status = QueueStatus.COMPLETED,
@@ -148,6 +189,8 @@ class BulkDownloadWorker(
             }
             downloadPreferences = downloadPreferences.copy(
                 cookies = true,
+                useDownloadArchive =
+                    if (forceRedownload) false else downloadPreferences.useDownloadArchive,
                 userAgentString = webviewUserAgent
             )
 
@@ -155,7 +198,7 @@ class BulkDownloadWorker(
             // 1. Fetch Video Info
             updateNotification(current, 0, "Obteniendo información...")
             val infoResult = DownloadUtil.fetchVideoInfoFromUrl(
-                url = item.url,
+                url = effectiveUrl,
                 taskKey = current.id.toString(),
                 preferences = downloadPreferences
             )
@@ -191,7 +234,11 @@ class BulkDownloadWorker(
                 if (now - lastProgressUpdate > 500 || progressPercentage >= 100f) {
                     lastProgressUpdate = now
                     com.junkfood.seal.App.applicationScope.launch(Dispatchers.IO) {
-                        queueDao.update(current.copy(progress = progress, updatedAt = now))
+                        queueDao.updateProgressIfDownloading(
+                            id = current.id,
+                            progress = progress,
+                            updatedAt = now,
+                        )
                     }
                     val progressInt = progressPercentage.toInt().coerceAtLeast(0)
                     updateNotification(current, progressInt, "Descargando ($progressInt%)")

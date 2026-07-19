@@ -1,0 +1,4 @@
+Improved consecutive link pasting and fixed completed downloads remaining stuck as downloading.
+Downloads now appear correctly in Android Recents.
+TikTok photo posts can be saved as original photos or as a music slideshow video.
+Added confirmation before downloading previously downloaded links again.

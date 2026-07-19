@@ -1,12 +1,14 @@
 package com.junkfood.seal.util
 
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.annotation.CheckResult
@@ -148,22 +150,46 @@ object FileUtil {
             }
 
         return files
-            .onEach { file ->
-                try {
-                    file.setLastModified(System.currentTimeMillis())
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
             .map { it.absolutePath }
             .toMutableList()
             .apply {
-                MediaScannerConnection.scanFile(context, this.toList().toTypedArray(), null, null)
+                publishDownloadedFilesToMediaLibrary(this)
                 removeAll {
                     it.contains(Regex(THUMBNAIL_REGEX, RegexOption.IGNORE_CASE)) ||
                         it.contains(Regex(SUBTITLE_REGEX, RegexOption.IGNORE_CASE))
                 }
             }
+    }
+
+    fun publishDownloadedFilesToMediaLibrary(paths: List<String>): List<String> {
+        if (paths.isEmpty()) return paths
+
+        val nowMillis = System.currentTimeMillis()
+        paths.forEach { path ->
+            runCatching { File(path).setLastModified(nowMillis) }
+                .onFailure { Log.w("FileUtil", "Unable to refresh modified time for $path", it) }
+        }
+
+        MediaScannerConnection.scanFile(context, paths.toTypedArray(), null) { path, uri ->
+            if (uri == null) return@scanFile
+
+            val nowSeconds = nowMillis / 1000
+            val values =
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DATE_ADDED, nowSeconds)
+                    put(MediaStore.MediaColumns.DATE_MODIFIED, nowSeconds)
+
+                    val mimeType = context.contentResolver.getType(uri).orEmpty()
+                    if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+                        put(MediaStore.Images.Media.DATE_TAKEN, nowMillis)
+                    }
+                }
+
+            runCatching { context.contentResolver.update(uri, values, null, null) }
+                .onFailure { Log.w("FileUtil", "Unable to mark $path as recent", it) }
+        }
+
+        return paths
     }
 
     fun scanDownloadDirectoryToMediaLibrary(downloadDir: String) =

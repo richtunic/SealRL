@@ -24,11 +24,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.junkfood.seal.util.InstagramMediaItem
 import com.junkfood.seal.util.DownloadUtil
+import com.junkfood.seal.util.TikTokPhotoPost
 
 class BulkDownloadViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _mediaSelectionList = MutableStateFlow<List<InstagramMediaItem>?>(null)
     val mediaSelectionList = _mediaSelectionList.asStateFlow()
+
+    private val _tiktokPhotoPost = MutableStateFlow<TikTokPhotoPost?>(null)
+    val tiktokPhotoPost = _tiktokPhotoPost.asStateFlow()
+
+    private val _previouslyDownloadedItems = MutableStateFlow<List<QueueItemEntity>>(emptyList())
+    val previouslyDownloadedItems = _previouslyDownloadedItems.asStateFlow()
 
     private val _isLoadingMedia = MutableStateFlow(false)
     val isLoadingMedia = _isLoadingMedia.asStateFlow()
@@ -192,9 +199,9 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
 
             val history = com.junkfood.seal.util.DatabaseUtil.getDownloadHistory()
             val itemsToEnqueue = mutableListOf<QueueItemEntity>()
+            val previouslyDownloaded = mutableListOf<QueueItemEntity>()
             val mediaItemsToSelect = mutableListOf<InstagramMediaItem>()
             var loginRequired = false
-            var totalInstagramFound = 0
 
             val instagramUrls = parsedUrls.filter { it.contains("instagram.com", ignoreCase = true) }
             if (instagramUrls.isNotEmpty()) {
@@ -202,12 +209,58 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
             }
 
             for (url in parsedUrls) {
-                if (url.contains("instagram.com", ignoreCase = true)) {
-                    totalInstagramFound++
+                if (
+                    !url.contains("instagram.com", ignoreCase = true) &&
+                        !url.contains("tiktok.com", ignoreCase = true) &&
+                        com.junkfood.seal.util.DatabaseUtil.isUrlAlreadyDownloaded(url, history) != null
+                ) {
+                    previouslyDownloaded.add(createQueueItem(url, BulkUrlParser.getPlatformName(url)))
+                    continue
+                }
+                if (url.contains("tiktok.com", ignoreCase = true)) {
+                    val photoPost = DownloadUtil.fetchTikTokPhotoPost(url)
+                    if (photoPost != null) {
+                        _tiktokPhotoPost.value = photoPost
+                    } else if (com.junkfood.seal.util.DatabaseUtil.isUrlAlreadyDownloaded(url, history) == null) {
+                        itemsToEnqueue.add(
+                            QueueItemEntity(
+                                url = url,
+                                normalizedUrl = url,
+                                platform = "TikTok",
+                                title = null,
+                                progress = 0f,
+                                status = QueueStatus.PENDING,
+                                errorMessage = null,
+                                outputPath = null,
+                            )
+                        )
+                    }
+                } else if (url.contains("instagram.com", ignoreCase = true)) {
                     try {
                         val mediaList = DownloadUtil.fetchInstagramMediaList(url)
                         if (mediaList != null) {
-                            val nonDownloaded = mediaList.filter { !com.junkfood.seal.util.DatabaseUtil.isInstagramItemDownloaded(it.id, history) }
+                            val (downloaded, nonDownloaded) =
+                                mediaList.partition {
+                                    com.junkfood.seal.util.DatabaseUtil.isInstagramItemDownloaded(
+                                        it.id,
+                                        history,
+                                    )
+                                }
+                            previouslyDownloaded.addAll(
+                                downloaded.map { item ->
+                                    createQueueItem(
+                                        url = item.mediaUrl,
+                                        platform =
+                                            if (item.title.contains("Story", ignoreCase = true))
+                                                "Story"
+                                            else "Instagram",
+                                        title =
+                                            if (!item.author.isNullOrEmpty())
+                                                "${item.author} · ${item.title}"
+                                            else item.title,
+                                    )
+                                }
+                            )
                             if (nonDownloaded.size > 1) {
                                 mediaItemsToSelect.addAll(nonDownloaded)
                             } else if (nonDownloaded.size == 1) {
@@ -317,18 +370,12 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
                 }
             }
 
-            if (totalInstagramFound > 0 && mediaItemsToSelect.isEmpty() && itemsToEnqueue.none { it.platform == "Instagram" || it.platform == "Story" }) {
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(
-                        com.junkfood.seal.App.context,
-                        "El contenido de Instagram ya ha sido descargado",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-
             if (mediaItemsToSelect.isNotEmpty()) {
                 _mediaSelectionList.value = mediaItemsToSelect
+            }
+
+            if (previouslyDownloaded.isNotEmpty()) {
+                _previouslyDownloadedItems.value = previouslyDownloaded
             }
 
             if (itemsToEnqueue.isNotEmpty()) {
@@ -366,6 +413,76 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
     fun cancelMediaSelection() {
         _mediaSelectionList.value = null
     }
+
+    fun enqueueTikTokPhotoPost(asVideo: Boolean) {
+        val post = _tiktokPhotoPost.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val mode = if (asVideo) "video" else "photos"
+            val queueUrl = "${post.sourceUrl}#searl_photo_mode=$mode"
+            queueDao.insert(
+                QueueItemEntity(
+                    url = queueUrl,
+                    normalizedUrl = post.sourceUrl,
+                    platform = "TikTok",
+                    title = post.title,
+                    progress = 0f,
+                    status = QueueStatus.PENDING,
+                    errorMessage = null,
+                    outputPath = null,
+                )
+            )
+            _tiktokPhotoPost.value = null
+            triggerDownloadWorker()
+        }
+    }
+
+    fun cancelTikTokPhotoPost() {
+        _tiktokPhotoPost.value = null
+    }
+
+    fun redownloadPreviouslyDownloadedItems() {
+        val items = _previouslyDownloadedItems.value
+        if (items.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            queueDao.insertAll(
+                items.map { item ->
+                    item.copy(
+                        id = 0,
+                        url = BulkDownloadWorker.FORCE_REDOWNLOAD_PREFIX + item.url,
+                        status = QueueStatus.PENDING,
+                        progress = 0f,
+                        errorMessage = null,
+                        outputPath = null,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis(),
+                        completedAt = null,
+                    )
+                }
+            )
+            _previouslyDownloadedItems.value = emptyList()
+            triggerDownloadWorker()
+        }
+    }
+
+    fun omitPreviouslyDownloadedItems() {
+        _previouslyDownloadedItems.value = emptyList()
+    }
+
+    private fun createQueueItem(
+        url: String,
+        platform: String,
+        title: String? = null,
+    ) =
+        QueueItemEntity(
+            url = url,
+            normalizedUrl = url,
+            platform = platform,
+            title = title,
+            progress = 0f,
+            status = QueueStatus.PENDING,
+            errorMessage = null,
+            outputPath = null,
+        )
 
     fun triggerDownloadWorker() {
         val workRequest = OneTimeWorkRequestBuilder<BulkDownloadWorker>()

@@ -30,6 +30,15 @@ interface DownloadQueueDao {
     @Update
     suspend fun update(item: QueueItemEntity)
 
+    @Query(
+        """
+        UPDATE download_queue
+        SET progress = :progress, updatedAt = :updatedAt
+        WHERE id = :id AND status = 'DOWNLOADING'
+        """
+    )
+    suspend fun updateProgressIfDownloading(id: Long, progress: Float, updatedAt: Long)
+
     @Query("DELETE FROM download_queue WHERE status = :status")
     suspend fun deleteByStatus(status: QueueStatus)
 

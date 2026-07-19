@@ -5,6 +5,28 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.7] - 2026-07-19
+
+### Español
+
+- Se robusteció el pegado consecutivo desde el portapapeles y el teclado Samsung: cada enlace queda en su propia línea y el cursor avanza a una línea vacía.
+- Se corrigió una carrera que podía dejar una descarga completada mostrando el estado “Descargando”.
+- Los archivos nuevos se registran con fecha actual en MediaStore para aparecer al inicio de “Recientes” al compartirlos.
+- Las publicaciones fotográficas de TikTok permiten elegir entre descargar las fotos originales o generar un video con su música, cuando TikTok proporciona la pista.
+- Las fotos y stories de Instagram continúan descargándose en su formato original, sin conversión automática.
+- Se agregó confirmación para enlaces descargados anteriormente, con opciones para volver a descargarlos realmente u omitirlos.
+- Se documentaron nuevos bugs y limitaciones para darles seguimiento en futuras versiones.
+
+### English
+
+- Hardened consecutive pasting from the clipboard and Samsung Keyboard: every link stays on its own line and the cursor advances to an empty line.
+- Fixed a race that could leave a completed download displayed as “Downloading”.
+- New files are registered with current MediaStore timestamps so they appear first in Android's sharing “Recents”.
+- TikTok photo posts can be downloaded as original photos or converted into a video with their music when TikTok exposes the audio track.
+- Instagram photos and stories continue to download in their original format without automatic conversion.
+- Added confirmation for previously downloaded links, allowing a real re-download or omission.
+- Documented newly identified bugs and limitations for future releases.
+
 ## [v1.0.6] - 2026-06-29
 
 ### Español

@@ -59,6 +59,225 @@ object DownloadUtil {
 
     private const val TAG = "DownloadUtil"
 
+    suspend fun fetchTikTokPhotoPost(url: String): TikTokPhotoPost? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                    val cookies = CookieManager.getInstance().getCookie("https://www.tiktok.com")
+                    val request =
+                        okhttp3.Request.Builder()
+                            .url(url.substringBefore('#'))
+                            .header(
+                                "User-Agent",
+                                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36",
+                            )
+                            .apply { if (!cookies.isNullOrBlank()) header("Cookie", cookies) }
+                            .build()
+                    val html =
+                        okhttp3.OkHttpClient.Builder()
+                            .followRedirects(true)
+                            .build()
+                            .newCall(request)
+                            .execute()
+                            .use { response ->
+                                if (!response.isSuccessful) return@runCatching null
+                                response.body?.string() ?: return@runCatching null
+                            }
+                    val jsonText =
+                        Regex(
+                                """<script[^>]+id=[\"']__UNIVERSAL_DATA_FOR_REHYDRATION__[\"'][^>]*>(.*?)</script>""",
+                                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+                            )
+                            .find(html)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.let(::unescapeHtml)
+                            ?: return@runCatching null
+                    val item = findTikTokItemStruct(org.json.JSONObject(jsonText)) ?: return@runCatching null
+                    val imagePost = item.optJSONObject("imagePost") ?: return@runCatching null
+                    val images = imagePost.optJSONArray("images") ?: return@runCatching null
+                    val imageUrls =
+                        buildList {
+                            for (index in 0 until images.length()) {
+                                val image = images.optJSONObject(index) ?: continue
+                                val urlList = image.optJSONObject("imageURL")?.optJSONArray("urlList")
+                                val imageUrl = urlList?.optString(0).orEmpty()
+                                if (imageUrl.startsWith("http")) add(imageUrl)
+                            }
+                        }
+                    if (imageUrls.isEmpty()) return@runCatching null
+
+                    val music = item.optJSONObject("music")
+                    val musicUrl =
+                        music?.optString("playUrl")?.takeIf { it.startsWith("http") }
+                            ?: music
+                                ?.optJSONObject("playUrl")
+                                ?.optJSONArray("urlList")
+                                ?.optString(0)
+                                ?.takeIf { it.startsWith("http") }
+                    TikTokPhotoPost(
+                        sourceUrl = url.substringBefore('#'),
+                        id = item.optString("id", url.hashCode().toString()),
+                        title = item.optString("desc", "TikTok photo post"),
+                        imageUrls = imageUrls,
+                        musicUrl = musicUrl,
+                    )
+                }
+                .onFailure { Log.w(TAG, "Unable to inspect TikTok photo post", it) }
+                .getOrNull()
+        }
+
+    private fun findTikTokItemStruct(value: Any?): org.json.JSONObject? {
+        when (value) {
+            is org.json.JSONObject -> {
+                value.optJSONObject("itemStruct")?.let { return it }
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    findTikTokItemStruct(value.opt(keys.next()))?.let { return it }
+                }
+            }
+            is org.json.JSONArray ->
+                for (index in 0 until value.length()) {
+                    findTikTokItemStruct(value.opt(index))?.let { return it }
+                }
+        }
+        return null
+    }
+
+    suspend fun downloadTikTokPhotoPost(
+        post: TikTokPhotoPost,
+        asVideo: Boolean,
+    ): Result<List<String>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val destination = java.io.File(videoDownloadDir).apply { mkdirs() }
+                val client =
+                    okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                val images =
+                    post.imageUrls.mapIndexed { index, imageUrl ->
+                        val file =
+                            java.io.File(
+                                destination,
+                                "tiktok_${post.id}_${index + 1}.jpg",
+                            )
+                        downloadTikTokAsset(client, imageUrl, file)
+                        file
+                    }
+
+                val finalFiles =
+                    if (asVideo && !post.musicUrl.isNullOrBlank()) {
+                        createTikTokSlideshowVideo(post, images, client)?.let(::listOf) ?: images
+                    } else {
+                        images
+                    }
+                FileUtil.publishDownloadedFilesToMediaLibrary(finalFiles.map { it.absolutePath })
+            }
+        }
+
+    private fun downloadTikTokAsset(
+        client: okhttp3.OkHttpClient,
+        url: String,
+        destination: java.io.File,
+    ) {
+        val request =
+            okhttp3.Request.Builder()
+                .url(url)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125 Mobile Safari/537.36",
+                )
+                .header("Referer", "https://www.tiktok.com/")
+                .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("TikTok asset HTTP ${response.code}")
+            val body = response.body ?: error("TikTok returned an empty asset")
+            body.byteStream().use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+    }
+
+    private fun createTikTokSlideshowVideo(
+        post: TikTokPhotoPost,
+        images: List<java.io.File>,
+        client: okhttp3.OkHttpClient,
+    ): java.io.File? {
+        if (images.isEmpty() || post.musicUrl.isNullOrBlank()) return null
+        val audioFile = java.io.File(context.cacheDir, "tiktok_${post.id}_audio.tmp")
+        val concatFile = java.io.File(context.cacheDir, "tiktok_${post.id}_frames.txt")
+        val outputFile = java.io.File(images.first().parentFile, "tiktok_${post.id}.mp4")
+        return try {
+            downloadTikTokAsset(client, post.musicUrl, audioFile)
+            concatFile.writeText(
+                buildString {
+                    images.forEach { image ->
+                        append("file '").append(image.absolutePath.replace("'", "'\\''")).append("'\n")
+                        append("duration 3\n")
+                    }
+                    append("file '")
+                        .append(images.last().absolutePath.replace("'", "'\\''"))
+                        .append("'\n")
+                }
+            )
+
+            val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
+            val ffmpeg = java.io.File(nativeLibraryDir, "libffmpeg.so")
+            if (!ffmpeg.exists()) return null
+            val command =
+                listOf(
+                    ffmpeg.absolutePath,
+                    "-y",
+                    "-stream_loop",
+                    "-1",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    concatFile.absolutePath,
+                    "-i",
+                    audioFile.absolutePath,
+                    "-vf",
+                    "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                    "-r",
+                    "30",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-shortest",
+                    "-movflags",
+                    "+faststart",
+                    outputFile.absolutePath,
+                )
+            val processBuilder = ProcessBuilder(command).redirectErrorStream(true)
+            val ffmpegLibraries =
+                java.io.File(
+                    context.noBackupFilesDir,
+                    "youtubedl-android/packages/ffmpeg/usr/lib",
+                )
+            processBuilder.environment()["LD_LIBRARY_PATH"] =
+                "${ffmpegLibraries.absolutePath}:$nativeLibraryDir"
+            val process = processBuilder.start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            if (process.waitFor() != 0 || outputFile.length() == 0L) {
+                Log.w(TAG, "Unable to create TikTok slideshow: $output")
+                outputFile.delete()
+                null
+            } else {
+                images.forEach { it.delete() }
+                outputFile
+            }
+        } finally {
+            audioFile.delete()
+            concatFile.delete()
+        }
+    }
+
     const val BASENAME = "%(title).200B"
 
     const val EXTENSION = ".%(ext)s"
@@ -150,13 +369,14 @@ object DownloadUtil {
                 (url.contains("instagram.f", ignoreCase = true) && url.contains(".fna.fbcdn.net", ignoreCase = true))
 
         if (isDirectCdnUrl) {
+            val mediaUrl = url.substringBefore('#')
             val ext = when {
-                url.contains(".mp4", ignoreCase = true) -> "mp4"
-                url.contains(".webm", ignoreCase = true) -> "webm"
-                url.contains(".jpeg", ignoreCase = true) ||
-                url.contains(".jpg", ignoreCase = true) -> "jpg"
-                url.contains(".png", ignoreCase = true) -> "png"
-                url.contains(".webp", ignoreCase = true) -> "webp"
+                mediaUrl.contains(".mp4", ignoreCase = true) -> "mp4"
+                mediaUrl.contains(".webm", ignoreCase = true) -> "webm"
+                mediaUrl.contains(".jpeg", ignoreCase = true) ||
+                mediaUrl.contains(".jpg", ignoreCase = true) -> "jpg"
+                mediaUrl.contains(".png", ignoreCase = true) -> "png"
+                mediaUrl.contains(".webp", ignoreCase = true) -> "webp"
                 else -> "mp4"
             }
             var title = "Instagram Media"
@@ -207,13 +427,14 @@ object DownloadUtil {
             resolvedUrl.contains("instagram.f") && resolvedUrl.contains(".fna.fbcdn.net")
         )
         if (isResolvedToCdnUrl) {
+            val mediaUrl = resolvedUrl.substringBefore('#')
             val ext = when {
-                resolvedUrl.contains(".mp4", ignoreCase = true) -> "mp4"
-                resolvedUrl.contains(".webm", ignoreCase = true) -> "webm"
-                resolvedUrl.contains(".jpeg", ignoreCase = true) ||
-                resolvedUrl.contains(".jpg", ignoreCase = true) -> "jpg"
-                resolvedUrl.contains(".png", ignoreCase = true) -> "png"
-                resolvedUrl.contains(".webp", ignoreCase = true) -> "webp"
+                mediaUrl.contains(".mp4", ignoreCase = true) -> "mp4"
+                mediaUrl.contains(".webm", ignoreCase = true) -> "webm"
+                mediaUrl.contains(".jpeg", ignoreCase = true) ||
+                mediaUrl.contains(".jpg", ignoreCase = true) -> "jpg"
+                mediaUrl.contains(".png", ignoreCase = true) -> "png"
+                mediaUrl.contains(".webp", ignoreCase = true) -> "webp"
                 else -> "mp4"
             }
             val syntheticInfo = VideoInfo(
@@ -852,8 +1073,8 @@ object DownloadUtil {
                 val mediaUrl = videoInfo.originalUrl!!
                 val ext = videoInfo.ext.ifEmpty { "mp4" }
                 val prefix = if (videoInfo.extractor == "threads") "threads" else "instagram"
-                
-                val igId = if (mediaUrl.contains("#ig_id=")) mediaUrl.substringAfter("#ig_id=").substringBefore("&") else ""
+                val fragmentParameters = decodeUrlFragmentParameters(mediaUrl)
+                val igId = fragmentParameters["ig_id"].orEmpty()
                 val fileName = if (igId.isNotEmpty()) {
                     "${prefix}_$igId.$ext"
                 } else {
@@ -895,8 +1116,10 @@ object DownloadUtil {
                 } ?: throw Throwable("Empty response body from CDN")
 
                 progressCallback?.invoke(100f, 0L, "")
-                insertInfoIntoDownloadHistory(videoInfo, listOf(destFile.absolutePath))
-                listOf(destFile.absolutePath)
+                val downloadedFiles =
+                    FileUtil.publishDownloadedFilesToMediaLibrary(listOf(destFile.absolutePath))
+                insertInfoIntoDownloadHistory(videoInfo, downloadedFiles)
+                downloadedFiles
             }
         }
 
@@ -1073,6 +1296,21 @@ object DownloadUtil {
                 sdcardUri = sdcardUri,
             )
         }
+    }
+
+    private fun decodeUrlFragmentParameters(url: String): Map<String, String> {
+        if (!url.contains('#')) return emptyMap()
+        return url.substringAfter('#').split('&').mapNotNull { parameter ->
+            val separator = parameter.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            val key = parameter.substring(0, separator)
+            val value =
+                runCatching {
+                        java.net.URLDecoder.decode(parameter.substring(separator + 1), "UTF-8")
+                    }
+                    .getOrDefault(parameter.substring(separator + 1))
+            key to value
+        }.toMap()
     }
 
     private fun onFinishDownloading(
@@ -1657,7 +1895,7 @@ object DownloadUtil {
                             title = title,
                             thumbnailUrl = thumbnailUrl,
                             webpageUrl = webpageUrl,
-                            author = author
+                            author = author,
                         )
                         list.add(InstagramMediaItem(
                             id = id,
@@ -1676,7 +1914,7 @@ object DownloadUtil {
                             title = title,
                             thumbnailUrl = thumbnailUrl,
                             webpageUrl = webpageUrl,
-                            author = author
+                            author = author,
                         )
                         list.add(InstagramMediaItem(
                             id = id,
@@ -1707,7 +1945,7 @@ object DownloadUtil {
                         title = title,
                         thumbnailUrl = thumbnailUrl,
                         webpageUrl = webpageUrl,
-                        author = author
+                        author = author,
                     )
                     list.add(InstagramMediaItem(
                         id = id,
@@ -1726,7 +1964,7 @@ object DownloadUtil {
                         title = title,
                         thumbnailUrl = thumbnailUrl,
                         webpageUrl = webpageUrl,
-                        author = author
+                        author = author,
                     )
                     list.add(InstagramMediaItem(
                         id = id,
@@ -1793,7 +2031,7 @@ object DownloadUtil {
                         title = title,
                         thumbnailUrl = thumbnailUrl,
                         webpageUrl = webpageUrl,
-                        author = author
+                        author = author,
                     )
                     list.add(InstagramMediaItem(
                         id = id,
@@ -1812,7 +2050,7 @@ object DownloadUtil {
                         title = title,
                         thumbnailUrl = thumbnailUrl,
                         webpageUrl = webpageUrl,
-                        author = author
+                        author = author,
                     )
                     list.add(InstagramMediaItem(
                         id = id,
@@ -1933,6 +2171,14 @@ data class InstagramMediaItem(
     val isVideo: Boolean,
     val title: String,
     val author: String? = null
+)
+
+data class TikTokPhotoPost(
+    val sourceUrl: String,
+    val id: String,
+    val title: String,
+    val imageUrls: List<String>,
+    val musicUrl: String?,
 )
 
 class InstagramLoginRequiredException : Exception("Instagram login required")

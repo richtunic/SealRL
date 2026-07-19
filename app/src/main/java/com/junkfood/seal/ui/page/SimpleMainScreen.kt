@@ -5,6 +5,10 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -91,7 +95,58 @@ private fun hasStoragePermission(context: Context): Boolean {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+internal fun insertPastedTextOnItsOwnLine(
+    value: TextFieldValue,
+    pastedText: String,
+): TextFieldValue {
+    val selectionStart = minOf(value.selection.start, value.selection.end)
+    val selectionEnd = maxOf(value.selection.start, value.selection.end)
+    val prefix = value.text.substring(0, selectionStart)
+    val suffix = value.text.substring(selectionEnd)
+    val normalizedPaste = pastedText.trimEnd('\r', '\n')
+
+    val text =
+        buildString {
+            append(prefix)
+            if (prefix.isNotEmpty() && !prefix.last().isWhitespace()) append('\n')
+            append(normalizedPaste)
+            append('\n')
+            if (suffix.isNotEmpty() && !suffix.first().isWhitespace()) append('\n')
+            append(suffix)
+        }
+    val cursor =
+        prefix.length +
+            (if (prefix.isNotEmpty() && !prefix.last().isWhitespace()) 1 else 0) +
+            normalizedPaste.length +
+            1
+    return TextFieldValue(text = text, selection = TextRange(cursor))
+}
+
+internal fun normalizeLikelyPasteImmediately(
+    previous: TextFieldValue,
+    current: TextFieldValue,
+): TextFieldValue {
+    if (current.text.length - previous.text.length <= 1) return current
+
+    val normalized =
+        com.junkfood.seal.util.BulkUrlParser.addTrailingNewlineAfterUrlPaste(
+            previousText = previous.text,
+            currentText = current.text,
+        )
+    if (normalized == current.text) return current
+
+    val cursorShift = normalized.length - current.text.length
+    return current.copy(
+        text = normalized,
+        selection =
+            TextRange(
+                (current.selection.start + cursorShift).coerceIn(0, normalized.length),
+                (current.selection.end + cursorShift).coerceIn(0, normalized.length),
+            ),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SimpleMainScreen(
     onNavigateToRoute: (String) -> Unit,
@@ -446,8 +501,9 @@ fun SimpleMainScreen(
                         OutlinedTextField(
                             value = inputFieldValue,
                             onValueChange = {
-                                inputFieldValue = it
-                                bulkViewModel.onInputTextChange(it.text)
+                                val updated = normalizeLikelyPasteImmediately(inputFieldValue, it)
+                                inputFieldValue = updated
+                                bulkViewModel.onInputTextChange(updated.text)
                             },
                             placeholder = {
                                 Text(
@@ -456,7 +512,27 @@ fun SimpleMainScreen(
                                 )
                             },
 
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .contentReceiver(
+                                        remember {
+                                            ReceiveContentListener { content ->
+                                                content.consume { item ->
+                                                    val pastedText =
+                                                        item.text?.toString()
+                                                            ?: return@consume false
+                                                    val updated =
+                                                        insertPastedTextOnItsOwnLine(
+                                                            inputFieldValue,
+                                                            pastedText,
+                                                        )
+                                                    inputFieldValue = updated
+                                                    bulkViewModel.onInputTextChange(updated.text)
+                                                    true
+                                                }
+                                            }
+                                        }
+                                    ),
                             minLines = 2,
                             maxLines = 8,
 
@@ -509,10 +585,13 @@ fun SimpleMainScreen(
                                 onClick = {
                                     val clipText = clipboardManager.getText()?.text
                                     if (!clipText.isNullOrBlank()) {
-                                        val currentText = inputFieldValue.text
-                                        bulkViewModel.onInputTextChange(
-                                            currentText + (if (currentText.isNotEmpty()) "\n" else "") + clipText
-                                        )
+                                        val updated =
+                                            insertPastedTextOnItsOwnLine(
+                                                inputFieldValue,
+                                                clipText,
+                                            )
+                                        inputFieldValue = updated
+                                        bulkViewModel.onInputTextChange(updated.text)
                                     } else {
                                         Toast.makeText(context, context.getString(R.string.paste_fail_msg), Toast.LENGTH_SHORT).show()
                                     }
@@ -982,6 +1061,9 @@ fun SimpleMainScreen(
         }
 
         val mediaSelectionList by bulkViewModel.mediaSelectionList.collectAsStateWithLifecycle()
+        val tiktokPhotoPost by bulkViewModel.tiktokPhotoPost.collectAsStateWithLifecycle()
+        val previouslyDownloadedItems by
+            bulkViewModel.previouslyDownloadedItems.collectAsStateWithLifecycle()
         val isLoadingMedia by bulkViewModel.isLoadingMedia.collectAsStateWithLifecycle()
 
         if (isLoadingMedia) {
@@ -1161,6 +1243,103 @@ fun SimpleMainScreen(
                 titleContentColor = Color.White,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.border(1.dp, Color(0xFFE11D48), RoundedCornerShape(16.dp))
+            )
+        }
+
+        tiktokPhotoPost?.let { post ->
+            AlertDialog(
+                onDismissRequest = { bulkViewModel.cancelTikTokPhotoPost() },
+                title = {
+                    Text(
+                        text = "Publicación de fotos de TikTok",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                text = {
+                    Text(
+                        text =
+                            if (post.musicUrl.isNullOrBlank()) {
+                                "Encontré ${post.imageUrls.size} fotos. TikTok no expuso la música; puedes descargar las fotos originales."
+                            } else {
+                                "Encontré ${post.imageUrls.size} fotos y su música. ¿Cómo quieres descargarla?"
+                            },
+                        color = Color(0xFFB0B0B0),
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { bulkViewModel.enqueueTikTokPhotoPost(asVideo = true) },
+                        enabled = !post.musicUrl.isNullOrBlank(),
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFE11D48),
+                                contentColor = Color.White,
+                            ),
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Video con música")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { bulkViewModel.enqueueTikTokPhotoPost(asVideo = false) }
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Fotos originales")
+                    }
+                },
+                containerColor = Color(0xFF0D0D0D),
+                textContentColor = Color.White,
+                titleContentColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                modifier =
+                    Modifier.border(1.dp, Color(0xFFE11D48), RoundedCornerShape(16.dp)),
+            )
+        }
+
+        if (previouslyDownloadedItems.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = { bulkViewModel.omitPreviouslyDownloadedItems() },
+                title = {
+                    Text(
+                        text = "Descarga repetida",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                text = {
+                    Text(
+                        text =
+                            "Uno o más enlaces ya se han descargado anteriormente. ¿Quieres volver a descargarlos u omitir esas descargas?",
+                        color = Color(0xFFB0B0B0),
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { bulkViewModel.redownloadPreviouslyDownloadedItems() },
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFE11D48),
+                                contentColor = Color.White,
+                            ),
+                    ) {
+                        Text("Volver a descargar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { bulkViewModel.omitPreviouslyDownloadedItems() }) {
+                        Text("Omitir")
+                    }
+                },
+                containerColor = Color(0xFF0D0D0D),
+                textContentColor = Color.White,
+                titleContentColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                modifier =
+                    Modifier.border(1.dp, Color(0xFFE11D48), RoundedCornerShape(16.dp)),
             )
         }
 

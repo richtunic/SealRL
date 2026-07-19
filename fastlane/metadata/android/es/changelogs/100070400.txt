@@ -1,0 +1,4 @@
+Se mejoró el pegado consecutivo y se corrigieron descargas completadas que quedaban como descargando.
+Las descargas ahora aparecen correctamente en Recientes de Android.
+Los posts de fotos de TikTok pueden guardarse como fotos originales o como video con música.
+Se agregó confirmación antes de volver a descargar enlaces anteriores.

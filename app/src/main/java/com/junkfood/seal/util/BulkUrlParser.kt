@@ -3,12 +3,15 @@ package com.junkfood.seal.util
 object BulkUrlParser {
     private val urlRegex = Regex("""https?://[^\s]+""")
     private val urlBoundaryRegex = Regex("""https?://.*?(?=https?://|\s|$)""")
-    private val twitterRegex = Regex("""https?://(?:[a-zA-Z0-9\-]+\.)?(?:twitter|x)\.com/[a-zA-Z0-9_]+/status/(\d+)""")
-    private val instagramRegex = Regex("""https?://(?:[a-zA-Z0-9\-]+\.)?instagram\.com/(?:p|reel|tv)/([a-zA-Z0-9_\-]+)""")
+    private val twitterRegex =
+        Regex("""https?://(?:[a-zA-Z0-9\-]+\.)?(?:twitter|x)\.com/[a-zA-Z0-9_]+/status/(\d+)""")
+    private val instagramRegex =
+        Regex("""https?://(?:[a-zA-Z0-9\-]+\.)?instagram\.com/(?:p|reel|tv)/([a-zA-Z0-9_\-]+)""")
 
     fun parse(input: String): List<String> {
         val separated = separateGluedUrls(input)
-        return urlBoundaryRegex.findAll(separated)
+        return urlBoundaryRegex
+            .findAll(separated)
             .map { it.value.trim() }
             .map { cleanUrl(it) }
             .map { normalizeUrl(it) }
@@ -23,7 +26,8 @@ object BulkUrlParser {
     }
 
     fun formatInputText(text: String): String {
-        val urls = urlBoundaryRegex.findAll(separateGluedUrls(text)).map { it.value.trim() }.toList()
+        val urls =
+            urlBoundaryRegex.findAll(separateGluedUrls(text)).map { it.value.trim() }.toList()
         if (urls.isEmpty()) return text
 
         return urls.joinToString(separator = "\n", postfix = "\n")
@@ -35,8 +39,8 @@ object BulkUrlParser {
         var prefixLength = 0
         while (
             prefixLength < previousText.length &&
-            prefixLength < currentText.length &&
-            previousText[prefixLength] == currentText[prefixLength]
+                prefixLength < currentText.length &&
+                previousText[prefixLength] == currentText[prefixLength]
         ) {
             prefixLength++
         }
@@ -44,9 +48,9 @@ object BulkUrlParser {
         var suffixLength = 0
         while (
             suffixLength < previousText.length - prefixLength &&
-            suffixLength < currentText.length - prefixLength &&
-            previousText[previousText.lastIndex - suffixLength] ==
-                currentText[currentText.lastIndex - suffixLength]
+                suffixLength < currentText.length - prefixLength &&
+                previousText[previousText.lastIndex - suffixLength] ==
+                    currentText[currentText.lastIndex - suffixLength]
         ) {
             suffixLength++
         }
@@ -70,13 +74,13 @@ object BulkUrlParser {
     }
 
     fun addTrailingNewlineAfterUrlPaste(previousText: String, currentText: String): String {
-        if (currentText.length <= previousText.length + 1) return currentText
+        if (currentText.length <= previousText.length) return currentText
 
         var prefixLength = 0
         while (
             prefixLength < previousText.length &&
-            prefixLength < currentText.length &&
-            previousText[prefixLength] == currentText[prefixLength]
+                prefixLength < currentText.length &&
+                previousText[prefixLength] == currentText[prefixLength]
         ) {
             prefixLength++
         }
@@ -84,24 +88,15 @@ object BulkUrlParser {
         var suffixLength = 0
         while (
             suffixLength < previousText.length - prefixLength &&
-            suffixLength < currentText.length - prefixLength &&
-            previousText[previousText.lastIndex - suffixLength] ==
-                currentText[currentText.lastIndex - suffixLength]
+                suffixLength < currentText.length - prefixLength &&
+                previousText[previousText.lastIndex - suffixLength] ==
+                    currentText[currentText.lastIndex - suffixLength]
         ) {
             suffixLength++
         }
 
         val insertEnd = currentText.length - suffixLength
         val insertedText = currentText.substring(prefixLength, insertEnd)
-        
-        val hasUrl = urlRegex.containsMatchIn(insertedText) || 
-                     insertedText.contains("instagram.com", ignoreCase = true) || 
-                     insertedText.contains("x.com", ignoreCase = true) || 
-                     insertedText.contains("twitter.com", ignoreCase = true) ||
-                     insertedText.contains("tiktok.com", ignoreCase = true) ||
-                     insertedText.contains("facebook.com", ignoreCase = true)
-                     
-        if (!hasUrl) return currentText
 
         return buildString {
             append(currentText.substring(0, prefixLength))
@@ -111,7 +106,11 @@ object BulkUrlParser {
             append(insertedText)
             if (insertEnd < currentText.length && !currentText[insertEnd].isWhitespace()) {
                 append('\n')
-            } else if (insertEnd == currentText.length && !insertedText.endsWith('\n') && !insertedText.endsWith('\r')) {
+            } else if (
+                insertEnd == currentText.length &&
+                    !insertedText.endsWith('\n') &&
+                    !insertedText.endsWith('\r')
+            ) {
                 append('\n')
             }
             append(currentText.substring(insertEnd))
@@ -119,32 +118,33 @@ object BulkUrlParser {
     }
 
     private fun cleanUrl(url: String): String {
-        return url
-            .trim()
-            .trimEnd(',', '.', ';', ')', ']')
+        return url.trim().trimEnd(',', '.', ';', ')', ']')
     }
 
     private fun normalizeUrl(url: String): String {
-        return url
-            .replace("https://twitter.com", "https://x.com")
+        return url.replace("https://twitter.com", "https://x.com")
             .replace("https://www.twitter.com", "https://x.com")
             .replace("https://mobile.twitter.com", "https://x.com")
     }
 
     private fun isSupported(url: String): Boolean {
         return url.startsWith("http://", ignoreCase = true) ||
-               url.startsWith("https://", ignoreCase = true)
+            url.startsWith("https://", ignoreCase = true)
     }
 
     fun getPlatformName(url: String): String {
         return when {
-            url.contains("threads.com", ignoreCase = true) || url.contains("threads.net", ignoreCase = true) -> "Threads"
+            url.contains("threads.com", ignoreCase = true) ||
+                url.contains("threads.net", ignoreCase = true) -> "Threads"
             url.contains("instagram.com/stories", ignoreCase = true) -> "Story"
             url.contains("instagram.com", ignoreCase = true) -> "Instagram"
-            url.contains("x.com", ignoreCase = true) || url.contains("twitter.com", ignoreCase = true) -> "X"
-            url.contains("youtube.com", ignoreCase = true) || url.contains("youtu.be", ignoreCase = true) -> "YouTube"
+            url.contains("x.com", ignoreCase = true) ||
+                url.contains("twitter.com", ignoreCase = true) -> "X"
+            url.contains("youtube.com", ignoreCase = true) ||
+                url.contains("youtu.be", ignoreCase = true) -> "YouTube"
             url.contains("tiktok.com", ignoreCase = true) -> "TikTok"
-            url.contains("facebook.com", ignoreCase = true) || url.contains("fb.watch", ignoreCase = true) -> "Facebook"
+            url.contains("facebook.com", ignoreCase = true) ||
+                url.contains("fb.watch", ignoreCase = true) -> "Facebook"
             url.contains("twitch.tv", ignoreCase = true) -> "Twitch"
             url.contains("reddit.com", ignoreCase = true) -> "Reddit"
             url.contains("pinterest.com", ignoreCase = true) -> "Pinterest"
@@ -155,7 +155,12 @@ object BulkUrlParser {
                     val uri = java.net.URI(url)
                     val host = uri.host ?: ""
                     val domain = host.removePrefix("www.").substringBefore(".")
-                    domain.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }.ifEmpty { "Web" }
+                    domain
+                        .replaceFirstChar {
+                            if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault())
+                            else it.toString()
+                        }
+                        .ifEmpty { "Web" }
                 } catch (e: Exception) {
                     "Web"
                 }
@@ -181,26 +186,30 @@ object BulkUrlParser {
         }
     }
 
-
     fun getCanonicalUrl(url: String): String {
         try {
             val clean = url.trim()
             val cleanLower = clean.lowercase()
-            val isYouTubeWatch = cleanLower.contains("youtube.com/watch") || cleanLower.contains("m.youtube.com/watch")
-            val isFacebookWatch = cleanLower.contains("facebook.com/watch") || cleanLower.contains("facebook.com/videos")
-            
+            val isYouTubeWatch =
+                cleanLower.contains("youtube.com/watch") ||
+                    cleanLower.contains("m.youtube.com/watch")
+            val isFacebookWatch =
+                cleanLower.contains("facebook.com/watch") ||
+                    cleanLower.contains("facebook.com/videos")
+
             var videoIdParam: String? = null
             if (isYouTubeWatch || isFacebookWatch) {
                 try {
                     val uri = java.net.URI(url)
                     val query = uri.query
                     if (!query.isNullOrEmpty()) {
-                        val params = query.split("&").associate {
-                            val parts = it.split("=", limit = 2)
-                            val key = parts.getOrNull(0) ?: ""
-                            val value = parts.getOrNull(1) ?: ""
-                            key to value
-                        }
+                        val params =
+                            query.split("&").associate {
+                                val parts = it.split("=", limit = 2)
+                                val key = parts.getOrNull(0) ?: ""
+                                val value = parts.getOrNull(1) ?: ""
+                                key to value
+                            }
                         videoIdParam = params["v"]
                     }
                 } catch (e: Exception) {
@@ -232,10 +241,11 @@ object BulkUrlParser {
 
             // Re-apply video id parameter for youtube and facebook watch links
             if ((isYouTubeWatch || isFacebookWatch) && !videoIdParam.isNullOrEmpty()) {
-                val base = cleanUrl
-                    .replace("https://www.youtube.com", "https://youtube.com")
-                    .replace("https://m.youtube.com", "https://youtube.com")
-                    .replace("https://www.facebook.com", "https://facebook.com")
+                val base =
+                    cleanUrl
+                        .replace("https://www.youtube.com", "https://youtube.com")
+                        .replace("https://m.youtube.com", "https://youtube.com")
+                        .replace("https://www.facebook.com", "https://facebook.com")
                 return "$base?v=$videoIdParam"
             }
 
