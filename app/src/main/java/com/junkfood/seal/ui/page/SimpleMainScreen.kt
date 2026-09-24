@@ -5,6 +5,9 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.content.ReceiveContentListener
 import androidx.compose.foundation.content.consume
@@ -20,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -29,7 +31,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import com.junkfood.seal.R
@@ -75,6 +76,12 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.clickable
 import com.junkfood.seal.ui.page.bulk.QueueItemRow
+import com.junkfood.seal.ui.page.settings.SettingsPage
+import com.junkfood.seal.ui.component.navigation.LiquidBottomNav
+import com.junkfood.seal.ui.component.PlatformIcon
+import com.junkfood.seal.ui.component.platformLogoForDownload
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.junkfood.seal.ui.page.settings.network.CookiesViewModel
 import com.junkfood.seal.database.objects.CookieProfile
 import androidx.compose.foundation.BorderStroke
@@ -101,48 +108,92 @@ internal fun insertPastedTextOnItsOwnLine(
 ): TextFieldValue {
     val selectionStart = minOf(value.selection.start, value.selection.end)
     val selectionEnd = maxOf(value.selection.start, value.selection.end)
-    val prefix = value.text.substring(0, selectionStart)
+    var prefix = value.text.substring(0, selectionStart)
     val suffix = value.text.substring(selectionEnd)
-    val normalizedPaste = pastedText.trimEnd('\r', '\n')
+    if (selectionStart == value.text.length && prefix.endsWith("\n ")) {
+        prefix = prefix.dropLast(1)
+    }
+    val normalizedPaste =
+        com.junkfood.seal.util.BulkUrlParser.separateGluedUrls(
+            pastedText.replace("\r\n", "\n").replace('\r', '\n')
+        ).trimEnd('\n')
+    val normalizedSuffix = suffix.trimStart('\r', '\n')
 
+    var cursor = 0
     val text =
         buildString {
             append(prefix)
-            if (prefix.isNotEmpty() && !prefix.last().isWhitespace()) append('\n')
+            if (prefix.isNotEmpty() && !prefix.endsWith('\n')) append('\n')
             append(normalizedPaste)
             append('\n')
-            if (suffix.isNotEmpty() && !suffix.first().isWhitespace()) append('\n')
-            append(suffix)
+            if (normalizedSuffix.isEmpty()) {
+                append(' ')
+                cursor = length
+            } else {
+                cursor = length
+                append(normalizedSuffix)
+            }
         }
-    val cursor =
-        prefix.length +
-            (if (prefix.isNotEmpty() && !prefix.last().isWhitespace()) 1 else 0) +
-            normalizedPaste.length +
-            1
     return TextFieldValue(text = text, selection = TextRange(cursor))
 }
+
+private data class TextReplacement(
+    val start: Int,
+    val end: Int,
+    val insertedText: String,
+)
+
+private fun detectTextReplacement(previousText: String, currentText: String): TextReplacement? {
+    if (previousText == currentText) return null
+
+    var prefixLength = 0
+    while (
+        prefixLength < previousText.length &&
+            prefixLength < currentText.length &&
+            previousText[prefixLength] == currentText[prefixLength]
+    ) {
+        prefixLength++
+    }
+
+    var suffixLength = 0
+    while (
+        suffixLength < previousText.length - prefixLength &&
+            suffixLength < currentText.length - prefixLength &&
+            previousText[previousText.lastIndex - suffixLength] ==
+                currentText[currentText.lastIndex - suffixLength]
+    ) {
+        suffixLength++
+    }
+
+    val insertedEnd = currentText.length - suffixLength
+    val insertedText = currentText.substring(prefixLength, insertedEnd)
+    if (insertedText.isEmpty()) return null
+    return TextReplacement(
+        start = prefixLength,
+        end = previousText.length - suffixLength,
+        insertedText = insertedText,
+    )
+}
+
+private fun normalizedClipboardPayload(text: String): String =
+    com.junkfood.seal.util.BulkUrlParser.separateGluedUrls(
+        text.replace("\r\n", "\n").replace('\r', '\n')
+    ).trimEnd('\n')
 
 internal fun normalizeLikelyPasteImmediately(
     previous: TextFieldValue,
     current: TextFieldValue,
+    clipboardText: String? = null,
 ): TextFieldValue {
-    if (current.text.length - previous.text.length <= 1) return current
+    val replacement = detectTextReplacement(previous.text, current.text) ?: return current
+    val normalizedInsertedText = normalizedClipboardPayload(replacement.insertedText)
+    val matchesClipboard =
+        clipboardText?.let(::normalizedClipboardPayload) == normalizedInsertedText
+    if (replacement.insertedText.length <= 1 && !matchesClipboard) return current
 
-    val normalized =
-        com.junkfood.seal.util.BulkUrlParser.addTrailingNewlineAfterUrlPaste(
-            previousText = previous.text,
-            currentText = current.text,
-        )
-    if (normalized == current.text) return current
-
-    val cursorShift = normalized.length - current.text.length
-    return current.copy(
-        text = normalized,
-        selection =
-            TextRange(
-                (current.selection.start + cursorShift).coerceIn(0, normalized.length),
-                (current.selection.end + cursorShift).coerceIn(0, normalized.length),
-            ),
+    return insertPastedTextOnItsOwnLine(
+        value = previous.copy(selection = TextRange(replacement.start, replacement.end)),
+        pastedText = replacement.insertedText,
     )
 }
 
@@ -155,7 +206,31 @@ fun SimpleMainScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val systemClipboardManager =
+        remember(context) {
+            context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        }
+
+    fun readSystemClipboardText(): String? =
+        runCatching {
+                systemClipboardManager.primaryClip
+                    ?.takeIf { it.itemCount > 0 }
+                    ?.getItemAt(0)
+                    ?.coerceToText(context)
+                    ?.toString()
+            }
+            .getOrNull()
+
+    var latestClipboardText by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(systemClipboardManager) {
+        latestClipboardText = readSystemClipboardText()
+        val listener =
+            android.content.ClipboardManager.OnPrimaryClipChangedListener {
+                latestClipboardText = readSystemClipboardText()
+            }
+        systemClipboardManager.addPrimaryClipChangedListener(listener)
+        onDispose { systemClipboardManager.removePrimaryClipChangedListener(listener) }
+    }
 
     var hasPermission by remember { mutableStateOf(hasStoragePermission(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
@@ -206,7 +281,7 @@ fun SimpleMainScreen(
     val inputText by bulkViewModel.inputText.collectAsStateWithLifecycle()
     var inputFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     LaunchedEffect(inputText) {
-        if (inputText != inputFieldValue.text) {
+        if (inputText.trimEnd() != inputFieldValue.text.trimEnd()) {
             inputFieldValue = TextFieldValue(
                 text = inputText,
                 selection = TextRange(inputText.length),
@@ -218,9 +293,14 @@ fun SimpleMainScreen(
 
     val historyItems by DatabaseUtil.getDownloadHistoryFlow().collectAsState(initial = emptyList())
 
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    val navBackdrop = rememberLayerBackdrop {
+        drawRect(Color.Black)
+        drawContent()
+    }
     var showQueueMenu by remember { mutableStateOf(false) }
     var showSettingsMenu by remember { mutableStateOf(false) }
+    var downloadFilter by remember { mutableStateOf(0) }
     var showLoginDialog by remember { mutableStateOf(false) }
     var itemToDelete by remember { mutableStateOf<DownloadedVideoInfo?>(null) }
 
@@ -276,6 +356,7 @@ fun SimpleMainScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
+            if (pagerState.currentPage != 2) {
             TopAppBar(
                 title = { 
                     Text(
@@ -330,20 +411,12 @@ fun SimpleMainScreen(
                     }
 
                     IconButton(onClick = { showSettingsMenu = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.menu_general_settings), tint = Color.White)
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.queue_actions), tint = Color.White)
                     }
                     DropdownMenu(
                         expanded = showSettingsMenu,
                         onDismissRequest = { showSettingsMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.menu_general_settings)) },
-                            leadingIcon = { Icon(Icons.Default.Settings, null) },
-                            onClick = {
-                                onNavigateToRoute(Route.SETTINGS_PAGE)
-                                showSettingsMenu = false
-                            }
-                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.menu_login_webview)) },
                             leadingIcon = { Icon(Icons.Default.Language, null) },
@@ -376,51 +449,12 @@ fun SimpleMainScreen(
                     actionIconContentColor = Color(0xFFFFFFFF)
                 )
             )
+            }
         },
         containerColor = Color(0xFF000000)
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            TabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = Color(0xFF000000),
-                contentColor = Color(0xFFE11D48),
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                        color = Color(0xFFE11D48)
-                    )
-                }
-            ) {
-                Tab(
-                    selected = pagerState.currentPage == 0,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                    text = { 
-                        Text(
-                            stringResource(R.string.tab_download), 
-                            fontWeight = FontWeight.Bold,
-                            color = if (pagerState.currentPage == 0) Color(0xFFE11D48) else Color(0xFFB0B0B0)
-                        ) 
-                    }
-                )
-                Tab(
-                    selected = pagerState.currentPage == 1,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                    text = { 
-                        Text(
-                            stringResource(R.string.tab_downloads), 
-                            fontWeight = FontWeight.Bold,
-                            color = if (pagerState.currentPage == 1) Color(0xFFE11D48) else Color(0xFFB0B0B0)
-                        ) 
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+        Box(modifier = Modifier.fillMaxSize().padding(top = paddingValues.calculateTopPadding())) {
+          Column(modifier = Modifier.fillMaxSize().layerBackdrop(navBackdrop)) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
@@ -431,7 +465,9 @@ fun SimpleMainScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(16.dp)
+                            .padding(bottom = 100.dp)
                     ) {
                         AnimatedVisibility(visible = !hasPermission) {
                             Card(
@@ -490,20 +526,22 @@ fun SimpleMainScreen(
                             }
                         }
 
-                        Text(
-                            text = stringResource(R.string.paste_links_hint),
-                            color = Color(0xFFB0B0B0),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        Text("Añade tus enlaces", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("Pega uno o más enlaces de las plataformas compatibles.", color = Color(0xFFA6A6AD), style = MaterialTheme.typography.bodyMedium)
 
                         Spacer(modifier = Modifier.height(12.dp))
 
                         OutlinedTextField(
                             value = inputFieldValue,
                             onValueChange = {
-                                val updated = normalizeLikelyPasteImmediately(inputFieldValue, it)
+                                val updated =
+                                    normalizeLikelyPasteImmediately(
+                                        previous = inputFieldValue,
+                                        current = it,
+                                        clipboardText = latestClipboardText,
+                                    )
                                 inputFieldValue = updated
-                                bulkViewModel.onInputTextChange(updated.text)
+                                bulkViewModel.onInputTextChange(updated.text.trimEnd())
                             },
                             placeholder = {
                                 Text(
@@ -527,7 +565,9 @@ fun SimpleMainScreen(
                                                             pastedText,
                                                         )
                                                     inputFieldValue = updated
-                                                    bulkViewModel.onInputTextChange(updated.text)
+                                                    bulkViewModel.onInputTextChange(
+                                                        updated.text.trimEnd()
+                                                    )
                                                     true
                                                 }
                                             }
@@ -548,12 +588,29 @@ fun SimpleMainScreen(
                         )
 
                         Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            listOf("Instagram", "X", "TikTok", "YouTube", "Threads", "Facebook").forEach { platform ->
+                                PlatformIcon(platform, Modifier.size(22.dp))
+                            }
+                        }
+
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 12.dp)
+                                .background(Color(0xFF111114), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val audioOnly by bulkViewModel.audioOnly.collectAsStateWithLifecycle()
+                            Icon(Icons.Default.Audiotrack, null, tint = Color(0xFFA6A6AD))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.audio_only_label), color = Color.White)
+                                Text(stringResource(R.string.extract_audio_summary), color = Color(0xFFA6A6AD), style = MaterialTheme.typography.bodySmall)
+                            }
                             Switch(
                                 checked = audioOnly,
                                 onCheckedChange = { bulkViewModel.toggleAudioOnly(it) },
@@ -564,12 +621,6 @@ fun SimpleMainScreen(
                                     uncheckedTrackColor = Color(0xFF0D0D0D),
                                     uncheckedBorderColor = Color(0xFF1E1E1E)
                                 )
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = stringResource(R.string.audio_only_label),
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium
                             )
                         }
 
@@ -583,7 +634,7 @@ fun SimpleMainScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    val clipText = clipboardManager.getText()?.text
+                                    val clipText = latestClipboardText ?: readSystemClipboardText()
                                     if (!clipText.isNullOrBlank()) {
                                         val updated =
                                             insertPastedTextOnItsOwnLine(
@@ -591,7 +642,7 @@ fun SimpleMainScreen(
                                                 clipText,
                                             )
                                         inputFieldValue = updated
-                                        bulkViewModel.onInputTextChange(updated.text)
+                                        bulkViewModel.onInputTextChange(updated.text.trimEnd())
                                     } else {
                                         Toast.makeText(context, context.getString(R.string.paste_fail_msg), Toast.LENGTH_SHORT).show()
                                     }
@@ -622,6 +673,7 @@ fun SimpleMainScreen(
                                         showPermissionDialog = true
                                     }
                                 },
+                                enabled = inputText.isNotBlank(),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = Color(0xFFE11D48),
                                     contentColor = Color(0xFFFFFFFF)
@@ -645,7 +697,7 @@ fun SimpleMainScreen(
                             .fillMaxSize()
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp)
+                        contentPadding = PaddingValues(bottom = 110.dp)
                     ) {
                         // Queue Metrics Banner
                         if (queueItems.isNotEmpty()) {
@@ -660,8 +712,7 @@ fun SimpleMainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     SimpleMetricItem(label = stringResource(R.string.metric_total), count = metrics.total)
-                                    SimpleMetricItem(label = stringResource(R.string.metric_pending), count = metrics.pending, color = Color(0xFFB0B0B0))
-                                    SimpleMetricItem(label = stringResource(R.string.metric_downloading), count = metrics.downloading, color = Color(0xFFF59E0B))
+                                    SimpleMetricItem(label = "En curso", count = metrics.pending + metrics.downloading + metrics.paused, color = Color(0xFFF59E0B))
                                     SimpleMetricItem(label = stringResource(R.string.metric_completed), count = metrics.completed, color = Color(0xFF22C55E))
                                     SimpleMetricItem(label = stringResource(R.string.metric_failed), count = metrics.failed, color = Color(0xFFEF4444))
                                 }
@@ -729,7 +780,26 @@ fun SimpleMainScreen(
                         }
 
                         // Active / Queue Section
-                        val activeItems = queueItems.filter { it.status != QueueStatus.COMPLETED }
+                        item {
+                            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Todos", "En curso", "Completadas", "Fallidas").forEachIndexed { index, label ->
+                                    FilterChip(
+                                        selected = downloadFilter == index,
+                                        onClick = { downloadFilter = index },
+                                        label = { Text(label) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            containerColor = Color(0xFF111114),
+                                            selectedContainerColor = Color(0x33E11D48),
+                                            selectedLabelColor = Color(0xFFE11D48),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        val activeItems = queueItems.filter {
+                            it.status in listOf(QueueStatus.PENDING, QueueStatus.DOWNLOADING, QueueStatus.PAUSED) &&
+                                downloadFilter in listOf(0, 1)
+                        }
                         if (activeItems.isNotEmpty()) {
                             item {
                                 Text(
@@ -748,9 +818,27 @@ fun SimpleMainScreen(
                                 )
                             }
                         }
+                        val problemItems = queueItems.filter {
+                            it.status in listOf(QueueStatus.FAILED, QueueStatus.CANCELED) &&
+                                downloadFilter in listOf(0, 3)
+                        }
+                        if (problemItems.isNotEmpty()) {
+                            item {
+                                Text("Con problemas", color = Color.White, fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                            }
+                            items(problemItems, key = { "queue_${it.id}" }) { item ->
+                                QueueItemRow(
+                                    item = item,
+                                    onDelete = { bulkViewModel.deleteItem(item.id) },
+                                    onRetry = { bulkViewModel.retryItem(item.id) },
+                                )
+                            }
+                        }
 
                         // Completed / History Section
-                        if (historyItems.isNotEmpty()) {
+                        if (historyItems.isNotEmpty() && downloadFilter in listOf(0, 2)) {
                             item {
                                 Text(
                                     text = stringResource(R.string.download_history_header),
@@ -760,7 +848,7 @@ fun SimpleMainScreen(
                                     modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
                                 )
                             }
-                            items(historyItems, key = { "history_${it.id}" }) { item ->
+                            items(historyItems.takeIf { downloadFilter in listOf(0, 2) }.orEmpty(), key = { "history_${it.id}" }) { item ->
                                 HistoryItemRow(
                                     item = item,
                                     onOpen = {
@@ -831,7 +919,7 @@ fun SimpleMainScreen(
                                     }
                                 )
                             }
-                        } else if (activeItems.isEmpty()) {
+                        } else if (activeItems.isEmpty() && problemItems.isEmpty()) {
                             item {
                                 Box(
                                     modifier = Modifier
@@ -849,8 +937,24 @@ fun SimpleMainScreen(
                         }
                     }
                 }
+                2 -> Box(modifier = Modifier.fillMaxSize()) {
+                    SettingsPage(
+                        onNavigateBack = { scope.launch { pagerState.animateScrollToPage(0) } },
+                        onNavigateTo = onNavigateToRoute,
+                        embedded = true,
+                        onOpenCookiesWebView = { showLoginDialog = true },
+                    )
+                }
             }
             }
+          }
+          Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+              LiquidBottomNav(
+                  selectedIndex = pagerState.currentPage,
+                  backdrop = navBackdrop,
+                  onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+              )
+          }
         }
 
         // Deletion Dialog
@@ -1446,41 +1550,12 @@ fun HistoryItemRow(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                // Platform & Media Type Badges
-                val platformName = com.junkfood.seal.util.BulkUrlParser.getPlatformName(item.videoUrl)
-                val badgeText = if (platformName == "Instagram" && item.videoTitle.contains("Story", ignoreCase = true)) "Story" else platformName
-                val badgeColor = Color(com.junkfood.seal.util.BulkUrlParser.getPlatformColor(badgeText))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .background(badgeColor, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = badgeText,
-                            color = if (badgeText == "Threads") Color.Black else Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    if (isImage) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFE11D48), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "IMG",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                // The source is represented by its logo only.
+                val platformLogo = platformLogoForDownload(item.videoUrl, item.extractor)
+                if (platformLogo != null) {
+                    PlatformIcon(platformLogo, Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
 
                 // Title
                 Text(

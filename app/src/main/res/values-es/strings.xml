@@ -23,6 +23,8 @@
     <string name="menu_cookie_profiles">Perfiles de cookies</string>
     <string name="menu_about">Acerca de</string>
     <string name="menu_login_webview">Iniciar sesión (WebView)</string>
+    <string name="cookies_webview_title">WebView para cookies</string>
+    <string name="cookies_webview_desc">Inicia sesión en una plataforma para obtener cookies de descarga</string>
     <string name="login_platform_dialog_title">Iniciar sesión (WebView)</string>
     <string name="select_platform_login">Selecciona una plataforma para iniciar sesión y capturar cookies:</string>
     <string name="other_url">Otro (Ingresar URL)</string>

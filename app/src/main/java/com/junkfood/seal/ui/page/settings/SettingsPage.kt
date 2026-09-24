@@ -14,14 +14,18 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.EnergySavingsLeaf
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.SettingsApplications
 import androidx.compose.material.icons.rounded.SignalCellular4Bar
 import androidx.compose.material.icons.rounded.SignalWifi4Bar
@@ -42,10 +46,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import com.junkfood.seal.App
 import com.junkfood.seal.R
 import com.junkfood.seal.ui.common.Route
@@ -61,7 +67,12 @@ import com.junkfood.seal.util.SHOW_SPONSOR_MSG
 @SuppressLint("BatteryLife")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsPage(onNavigateBack: () -> Unit, onNavigateTo: (String) -> Unit) {
+fun SettingsPage(
+    onNavigateBack: () -> Unit,
+    onNavigateTo: (String) -> Unit,
+    embedded: Boolean = false,
+    onOpenCookiesWebView: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     var showBatteryHint by remember {
@@ -109,23 +120,17 @@ fun SettingsPage(onNavigateBack: () -> Unit, onNavigateTo: (String) -> Unit) {
 
     val typography = MaterialTheme.typography
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            val overrideTypography =
-                remember(typography) { typography.copy(headlineMedium = typography.displaySmall) }
-
-            MaterialTheme(typography = overrideTypography) {
-                LargeTopAppBar(
-                    title = { Text(text = stringResource(id = R.string.settings)) },
-                    navigationIcon = { BackButton(onNavigateBack) },
-                    scrollBehavior = scrollBehavior,
-                    expandedHeight = TopAppBarDefaults.LargeAppBarExpandedHeight + 24.dp,
-                )
+    val entries: LazyListScope.() -> Unit = {
+            if (embedded) {
+                item {
+                    Text(
+                        text = stringResource(R.string.settings),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
             }
-        },
-    ) {
-        LazyColumn(modifier = Modifier, contentPadding = it) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 item {
                     AnimatedVisibility(
@@ -206,11 +211,11 @@ fun SettingsPage(onNavigateBack: () -> Unit, onNavigateTo: (String) -> Unit) {
             }
             item {
                 SettingItem(
-                    title = stringResource(id = R.string.look_and_feel),
-                    description = stringResource(id = R.string.display_settings),
-                    icon = Icons.Rounded.Palette,
+                    title = stringResource(R.string.cookies_webview_title),
+                    description = stringResource(R.string.cookies_webview_desc),
+                    icon = Icons.Rounded.Cookie,
                 ) {
-                    onNavigateTo(Route.APPEARANCE)
+                    onOpenCookiesWebView?.invoke() ?: onNavigateTo(Route.COOKIE_PROFILE)
                 }
             }
             item {
@@ -240,6 +245,35 @@ fun SettingsPage(onNavigateBack: () -> Unit, onNavigateTo: (String) -> Unit) {
                     onNavigateTo(Route.ABOUT)
                 }
             }
+    }
+
+    if (embedded) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentPadding = PaddingValues(top = 20.dp, bottom = 160.dp),
+            content = entries,
+        )
+    } else {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                val overrideTypography =
+                    remember(typography) { typography.copy(headlineMedium = typography.displaySmall) }
+                MaterialTheme(typography = overrideTypography) {
+                    LargeTopAppBar(
+                        title = { Text(text = stringResource(id = R.string.settings)) },
+                        navigationIcon = { BackButton(onNavigateBack) },
+                        scrollBehavior = scrollBehavior,
+                        expandedHeight = TopAppBarDefaults.LargeAppBarExpandedHeight + 24.dp,
+                    )
+                }
+            },
+        ) { scaffoldPadding ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = scaffoldPadding,
+                content = entries,
+            )
         }
     }
 }

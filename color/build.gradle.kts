@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
 
@@ -12,7 +11,7 @@ kotlin {
     jvmToolchain(21)
 }
 android {
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         minSdk = 21
     }

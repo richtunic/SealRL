@@ -42,19 +42,46 @@ import com.junkfood.seal.util.connectWithDelimiter
 private const val TAG = "WebViewPage"
 private const val SESSION_COOKIE_EXPIRY = 1893456000L
 
+private val persistentSocialCookieDomains =
+    listOf(
+        "https://facebook.com",
+        "https://www.facebook.com",
+        "https://m.facebook.com",
+        "https://mbasic.facebook.com",
+        "https://web.facebook.com",
+        "https://instagram.com",
+        "https://www.instagram.com",
+        "https://threads.com",
+        "https://www.threads.com",
+        "https://threads.net",
+        "https://www.threads.net",
+        "https://x.com",
+        "https://twitter.com",
+        "https://mobile.twitter.com",
+        "https://tiktok.com",
+        "https://www.tiktok.com",
+    )
+
 private fun CookieManager.hasCookie(url: String, name: String): Boolean =
     getCookie(url)
         ?.split(";")
         ?.map { it.trim().substringBefore("=") }
         ?.any { it == name } == true
 
+private fun CookieManager.hasCookies(
+    urls: List<String>,
+    vararg names: String,
+): Boolean = urls.any { url -> names.all { name -> hasCookie(url, name) } }
+
 private fun CookieManager.persistentStartUrl(url: String): String {
     return when {
         url.contains("facebook.com", ignoreCase = true) || url.contains("fb.com", ignoreCase = true) -> {
             val hasFacebookSession =
-                hasCookie("https://www.facebook.com", "c_user") ||
-                    hasCookie("https://m.facebook.com", "c_user") ||
-                    hasCookie("https://facebook.com", "c_user")
+                hasCookies(
+                    cookieDomainsForUrl("https://facebook.com"),
+                    "c_user",
+                    "xs",
+                )
             if (hasFacebookSession) {
                 "https://m.facebook.com/"
             } else {
@@ -74,7 +101,7 @@ private fun CookieManager.persistentStartUrl(url: String): String {
         }
 
         url.contains("instagram.com", ignoreCase = true) -> {
-            if (hasCookie("https://www.instagram.com", "sessionid")) {
+            if (hasCookies(cookieDomainsForUrl(url), "sessionid")) {
                 "https://www.instagram.com/"
             } else {
                 url
@@ -82,7 +109,7 @@ private fun CookieManager.persistentStartUrl(url: String): String {
         }
 
         url.contains("threads.com", ignoreCase = true) || url.contains("threads.net", ignoreCase = true) -> {
-            if (hasCookie("https://www.threads.com", "sessionid")) {
+            if (hasCookies(cookieDomainsForUrl(url), "sessionid")) {
                 "https://www.threads.com/"
             } else {
                 url
@@ -145,7 +172,7 @@ private fun String.netscapeCookieDomain(): String {
     return if (host.startsWith(".")) host else ".$host"
 }
 
-private fun cookieDomainsForUrl(url: String): List<String> =
+internal fun cookieDomainsForUrl(url: String): List<String> =
     when {
         url.contains("facebook.com", ignoreCase = true) || url.contains("fb.com", ignoreCase = true) ->
             listOf(
@@ -172,12 +199,56 @@ private fun cookieDomainsForUrl(url: String): List<String> =
         url.contains("x.com", ignoreCase = true) || url.contains("twitter.com", ignoreCase = true) ->
             listOf("https://x.com", "https://twitter.com", "https://mobile.twitter.com")
 
+        url.contains("tiktok.com", ignoreCase = true) ->
+            listOf("https://tiktok.com", "https://www.tiktok.com")
+
         else -> listOf(url)
     }
 
+internal fun cookieDomainsToPersistForUrl(url: String): List<String> =
+    (persistentSocialCookieDomains + cookieDomainsForUrl(url)).distinct()
+
+internal fun mergeNetscapeCookieContent(
+    existingContent: String,
+    refreshedContent: String,
+): String {
+    val cookiesByKey = linkedMapOf<String, String>()
+
+    fun addCookieLines(content: String) {
+        content.lineSequence().forEach { line ->
+            val isHttpOnlyCookie = line.startsWith("#HttpOnly_")
+            if (line.isBlank() || (line.startsWith("#") && !isHttpOnlyCookie)) return@forEach
+
+            val parts = line.split('\t', limit = 7)
+            if (parts.size < 7) return@forEach
+
+            val domain = parts[0].removePrefix("#HttpOnly_").lowercase()
+            val key = "$domain\t${parts[2]}\t${parts[5]}"
+            cookiesByKey[key] = line
+        }
+    }
+
+    addCookieLines(existingContent)
+    addCookieLines(refreshedContent)
+
+    return buildString {
+        append(COOKIE_HEADER)
+        cookiesByKey.values.forEach { append(it).append('\n') }
+    }
+}
+
+private fun writeMergedCookies(content: String, destination: java.io.File) {
+    val existingContent = runCatching { destination.takeIf { it.exists() }?.readText().orEmpty() }
+        .getOrDefault("")
+    FileUtil.writeContentToFile(
+        mergeNetscapeCookieContent(existingContent, content),
+        destination,
+    )
+}
+
 private fun CookieManager.exportCookiesForUrl(url: String): String {
     val cookies =
-        cookieDomainsForUrl(url)
+        cookieDomainsToPersistForUrl(url)
             .flatMap { domainUrl ->
                 getCookie(domainUrl)
                     ?.split(";")
@@ -224,7 +295,7 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
         onDispose {
             cookieManager.flush()
             cookieManager.exportCookiesForUrl(profileUrl).takeIf { it.isNotBlank() }?.let {
-                FileUtil.writeContentToFile(it, com.junkfood.seal.App.context.getCookiesFile())
+                writeMergedCookies(it, com.junkfood.seal.App.context.getCookiesFile())
             }
         }
     }
@@ -256,7 +327,7 @@ fun WebViewPage(cookiesViewModel: CookiesViewModel, onDismissRequest: () -> Unit
                     super.onPageFinished(view, url)
                     cookieManager.flush()
                     cookieManager.exportCookiesForUrl(profileUrl).takeIf { it.isNotBlank() }?.let {
-                        FileUtil.writeContentToFile(it, view.context.getCookiesFile())
+                        writeMergedCookies(it, view.context.getCookiesFile())
                     }
                     if (url.isNullOrEmpty()) return
                 }

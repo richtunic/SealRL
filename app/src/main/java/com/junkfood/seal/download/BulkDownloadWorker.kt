@@ -18,6 +18,7 @@ import com.junkfood.seal.database.objects.QueueItemEntity
 import com.junkfood.seal.database.objects.QueueStatus
 import com.junkfood.seal.util.DatabaseUtil
 import com.junkfood.seal.util.DownloadUtil
+import com.junkfood.seal.util.ThreadsWebViewResolver
 import com.junkfood.seal.util.PreferenceUtil.getBoolean
 import com.junkfood.seal.util.PreferenceUtil.getString
 import kotlinx.coroutines.CancellationException
@@ -197,11 +198,26 @@ class BulkDownloadWorker(
 
             // 1. Fetch Video Info
             updateNotification(current, 0, "Obteniendo información...")
-            val infoResult = DownloadUtil.fetchVideoInfoFromUrl(
-                url = effectiveUrl,
-                taskKey = current.id.toString(),
-                preferences = downloadPreferences
-            )
+            val infoResult =
+                if (ThreadsWebViewResolver.isThreadsUrl(effectiveUrl)) {
+                    val media = ThreadsWebViewResolver.resolveVideo(effectiveUrl)
+                    if (media != null) {
+                        kotlin.Result.success(DownloadUtil.threadsVideoInfo(media))
+                    } else {
+                        kotlin.Result.failure(
+                            IllegalStateException(
+                                "Threads no expuso un video descargable para este enlace. " +
+                                    "Comprueba que la publicación sea pública o inicia sesión en Threads desde Ajustes."
+                            )
+                        )
+                    }
+                } else {
+                    DownloadUtil.fetchVideoInfoFromUrl(
+                        url = effectiveUrl,
+                        taskKey = current.id.toString(),
+                        preferences = downloadPreferences
+                    )
+                }
 
             if (infoResult.isFailure) {
                 val th = infoResult.exceptionOrNull()
@@ -484,7 +500,7 @@ class BulkDownloadWorker(
             }
         }
 
-        return "$mainMessage $action\n$reportDetail"
+        return "$mainMessage $action\n$reportDetail\nDiagnóstico yt-dlp:\n$rawMessage"
     }
 
 

@@ -239,7 +239,7 @@ private val IntPreferenceDefaults =
         SHOW_SPONSOR_MSG to 0,
         CONVERT_SUBTITLE to NOT_SPECIFIED,
         DOWNLOAD_TYPE_INITIALIZATION to USE_PREVIOUS_SELECTION,
-        YT_DLP_UPDATE_CHANNEL to YT_DLP_NIGHTLY,
+        YT_DLP_UPDATE_CHANNEL to YT_DLP_STABLE,
         DOWNLOAD_TYPE to DownloadType.Video.ordinal,
     )
 

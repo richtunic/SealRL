@@ -66,6 +66,7 @@ fun MediaListItem(
     thumbnailUrl: String = "",
     videoPath: String = "",
     videoUrl: String = "",
+    extractor: String = "",
     videoFileSize: Long = 0L,
     isSelectEnabled: () -> Boolean = { false },
     isSelected: () -> Boolean = { false },
@@ -79,6 +80,7 @@ fun MediaListItem(
     val context = LocalContext.current
     val isFileAvailable = videoFileSize != 0L
     val fileSizeText = videoFileSize.toFileSizeText()
+    val platformLogo = platformLogoForDownload(videoUrl, extractor)
 
     Box(
         modifier =
@@ -114,6 +116,10 @@ fun MediaListItem(
                 modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
                 verticalArrangement = Arrangement.Top,
             ) {
+                if (platformLogo != null) {
+                    PlatformIcon(platformLogo, Modifier.size(18.dp))
+                    androidx.compose.foundation.layout.Spacer(Modifier.height(4.dp))
+                }
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,

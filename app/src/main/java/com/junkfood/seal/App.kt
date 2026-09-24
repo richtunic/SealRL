@@ -91,6 +91,9 @@ class App : Application() {
         applicationScope.launch((Dispatchers.IO)) {
             try {
                 YoutubeDL.init(this@App)
+                YoutubeDL.getInstance().version(this@App)?.let { installedVersion ->
+                    YT_DLP_VERSION.updateString(installedVersion)
+                }
                 FFmpeg.init(this@App)
                 Aria2c.init(this@App)
                 DownloadUtil.getCookiesContentFromDatabase().getOrNull()?.let {

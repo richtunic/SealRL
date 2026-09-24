@@ -33,10 +33,6 @@ object UpdateUtil {
 
     private const val OWNER = "richtunic"
     private const val REPO = "SealRL"
-    private const val ARM64 = "arm64-v8a"
-    private const val ARM32 = "armeabi-v7a"
-    private const val X86 = "x86"
-    private const val X64 = "x86_64"
     private const val TAG = "UpdateUtil"
 
     private val client = OkHttpClient()
@@ -64,10 +60,10 @@ object UpdateUtil {
             YoutubeDL.getInstance()
                 .updateYoutubeDL(appContext = context, updateChannel = channel)
                 .also {
-                    if (it == YoutubeDL.UpdateStatus.DONE) {
-                        YoutubeDL.getInstance().version(context)?.let {
-                            PreferenceUtil.encodeString(YT_DLP_VERSION, it)
-                        }
+                    // Read the executable version after the update attempt, including when the
+                    // wrapper reports that the installed release is already current.
+                    YoutubeDL.getInstance().version(context)?.let { installedVersion ->
+                        PreferenceUtil.encodeString(YT_DLP_VERSION, installedVersion)
                     }
                     val now = System.currentTimeMillis()
                     YT_DLP_UPDATE_TIME.updateLong(now)
@@ -216,13 +212,11 @@ object UpdateUtil {
                 }
             }
 
-            val abiList = Build.SUPPORTED_ABIS
-            val preferredArch = abiList.firstOrNull() ?: return@withContext emptyFlow()
-
             val targetUrl =
                 release.assets
-                    ?.find {
-                        return@find it.name?.contains(preferredArch) ?: false
+                    ?.firstOrNull { asset ->
+                        asset.name?.endsWith(".apk", ignoreCase = true) == true &&
+                            asset.name.contains("universal", ignoreCase = true)
                     }
                     ?.browserDownloadUrl ?: return@withContext emptyFlow()
             val request = Request.Builder().url(targetUrl).build()

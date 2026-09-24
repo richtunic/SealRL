@@ -1,0 +1,5 @@
+# Iconos de plataformas
+
+Los PNG de `app/src/main/res/drawable-nodpi/platform_*.png` se generaron a 256 × 256 con fondo transparente a partir de los trazados de Instagram, X, TikTok, YouTube y Threads de [Simple Icons](https://github.com/simple-icons/simple-icons), consultados el 24 de septiembre de 2026. Se usó la variante monocroma blanca para mantener legibilidad sobre el fondo negro de SeaRL. No se añadieron marcas de agua.
+
+Simple Icons distribuye sus trazados bajo [CC0 1.0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md). Esa licencia no concede derechos sobre las marcas: los nombres y logotipos siguen perteneciendo a sus titulares. El catálogo enlaza las guías de [Instagram](https://about.meta.com/brand/resources/instagram), [Threads](https://www.meta.com/brand/resources/instagram/threads), [X](https://about.x.com/en/who-we-are/brand-toolkit) y [YouTube](https://www.youtube.com/howyoutubeworks/resources/brand-resources/#logos-icons-and-colors); TikTok sólo enlaza su sitio principal. Conviene revisar esas guías vigentes antes de publicar una versión comercial.

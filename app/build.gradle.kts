@@ -1,12 +1,10 @@
 @file:Suppress("UnstableApiUsage")
 
-import com.android.build.api.variant.FilterConfiguration
 import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.compose.compiler)
@@ -16,18 +14,12 @@ plugins {
 
 val keystorePropertiesFile: File = rootProject.file("keystore.properties")
 
-val splitApks = !project.hasProperty("noSplits")
-
-val abiFilterList = (properties["ABI_FILTERS"] as String).split(';')
-
-val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
-
 val baseVersionName = currentVersion.name
 val currentVersionCode = currentVersion.code.toInt()
 
 android {
     layout.buildDirectory.set(file("/tmp/searl-build/app"))
-    compileSdk = 35
+    compileSdk = 37
 
     if (keystorePropertiesFile.exists()) {
         val keystoreProperties = Properties()
@@ -42,56 +34,26 @@ android {
         }
     }
 
-    buildFeatures { buildConfig = true }
+    buildFeatures {
+        buildConfig = true
+        resValues = true
+    }
 
     defaultConfig {
         applicationId = "com.junkfood.searl"
         minSdk = 24
         targetSdk = 35
-        versionCode = 100_070_400
+        versionCode = 100_080_400
         check(versionCode == currentVersionCode)
 
         versionName = baseVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
-        if (splitApks) {
-            splits {
-                abi {
-                    isEnable = true
-                    reset()
-                    include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-                    isUniversalApk = true
-                }
-            }
-        } else {
-            ndk { abiFilters.addAll(abiFilterList) }
-        }
     }
 
     room { schemaDirectory("/tmp/searl-schemas") }
     ksp { arg("room.incremental", "true") }
-
-    androidComponents {
-        onVariants { variant ->
-            variant.outputs.forEach { output ->
-                val name =
-                    if (splitApks) {
-                        output.filters
-                            .find { it.filterType == FilterConfiguration.FilterType.ABI }
-                            ?.identifier
-                    } else {
-                        abiFilterList.firstOrNull()
-                    }
-
-                val baseAbiCode = abiCodes[name]
-
-                if (baseAbiCode != null) {
-                    output.versionCode.set(baseAbiCode + (output.versionCode.get() ?: 0))
-                }
-            }
-        }
-    }
 
     buildTypes {
         release {
@@ -139,15 +101,6 @@ android {
 
     lint { disable.addAll(listOf("MissingTranslation", "ExtraTranslation", "MissingQuantity")) }
 
-    applicationVariants.all {
-        outputs.all {
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "SeaRL-${defaultConfig.versionName}-${name}.apk"
-        }
-    }
-
-    kotlinOptions { freeCompilerArgs = freeCompilerArgs + "-opt-in=kotlin.RequiresOptIn" }
-
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
         jniLibs.useLegacyPackaging = true
@@ -159,7 +112,10 @@ android {
 
 ktfmt { kotlinLangStyle() }
 
-kotlin { jvmToolchain(21) }
+kotlin {
+    jvmToolchain(21)
+    compilerOptions { freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn") }
+}
 
 dependencies {
     implementation(project(":color"))
@@ -187,6 +143,7 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.bundles.youtubedlAndroid)
+    implementation("io.github.kyant0:backdrop:2.0.1")
 
     implementation(libs.mmkv)
 

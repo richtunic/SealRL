@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Facebook f glyph: Font Awesome Free 6.7.2, CC BY 4.0.
+         https://fontawesome.com/icons/facebook-f?f=brands&s=solid -->
+    <group
+        android:scaleX="0.06"
+        android:scaleY="0.046875"
+        android:translateX="2">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M80,299.3V512H196V299.3h86.5l18,-97.8H196V166.9c0,-51.7 20.3,-71.5 72.7,-71.5c16.3,0 29.4,0.4 37,1.2V7.9C291.4,4 256.4,0 236.2,0C129.3,0 80,50.5 80,159.4v42.1H14v97.8H80z" />
+    </group>
+</vector>

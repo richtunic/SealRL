@@ -25,6 +25,8 @@
     <string name="menu_cookie_profiles">Cookie profiles</string>
     <string name="menu_about">About</string>
     <string name="menu_login_webview">WebView Login</string>
+    <string name="cookies_webview_title">WebView for cookies</string>
+    <string name="cookies_webview_desc">Sign in to a platform to obtain cookies for downloads</string>
     <string name="login_platform_dialog_title">WebView Login</string>
     <string name="select_platform_login">Select a platform to log in and capture session cookies:</string>
     <string name="other_url">Other (Enter URL)</string>

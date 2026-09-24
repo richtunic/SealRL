@@ -23,22 +23,31 @@ jobs:
 
     - uses: gradle/actions/setup-gradle@v3
 
-    - run: gradle assembleRelease
+    - run: ./gradlew :app:assembleGenericRelease
 
     - name: Sign app APK
       id: sign_app
       uses: ilharp/sign-android-release@nightly
       with:
-        releaseDir: app/build/outputs/apk/release
+        releaseDir: /tmp/searl-build/app/outputs/apk/generic/release
         signingKey: ${{ secrets.SIGNING_KEY }}
         keyAlias: ${{ secrets.ALIAS }}
         keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
         keyPassword: ${{ secrets.KEY_PASSWORD }}
 
+    - name: Name universal APK
+      run: |
+        set -euo pipefail
+        release_dir=/tmp/searl-build/app/outputs/apk/generic/release
+        version=$(jq -r '.elements[0].versionName' "$release_dir/output-metadata.json")
+        signed_apk=$(find "$release_dir" -maxdepth 1 -name '*-signed.apk' -print -quit)
+        test -n "$signed_apk"
+        cp "$signed_apk" "$release_dir/SeaRL-$version-universal.apk"
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: signed-apks
-        path: app/build/outputs/apk/release/*-arm64-v8a-release-signed.apk
+        name: signed-universal-apk
+        path: /tmp/searl-build/app/outputs/apk/generic/release/SeaRL-*-universal.apk
         if-no-files-found: error
         retention-days: 20

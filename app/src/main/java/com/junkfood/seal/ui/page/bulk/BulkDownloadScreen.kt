@@ -4,6 +4,8 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -244,6 +246,8 @@ fun QueueItemRow(
     onDelete: () -> Unit,
     onRetry: () -> Unit
 ) {
+    var showDetails by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
     val timeStr = sdf.format(Date(item.createdAt))
 
@@ -352,9 +356,10 @@ fun QueueItemRow(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Progress indicator (always visible, forced LTR)
-            Spacer(modifier = Modifier.height(8.dp))
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            // Progress only communicates something useful while a download is active.
+            if (item.status == QueueStatus.DOWNLOADING || item.status == QueueStatus.PAUSED) {
+              Spacer(modifier = Modifier.height(8.dp))
+              CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -374,19 +379,49 @@ fun QueueItemRow(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+              }
             }
 
             // Error message if failed
             AnimatedVisibility(visible = item.status == QueueStatus.FAILED && !item.errorMessage.isNullOrEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = item.errorMessage ?: "",
+                    text = item.errorMessage.orEmpty().substringBefore("\nReporte:").substringBefore("\nDiagnóstico yt-dlp:"),
                     color = Color(0xFFEF4444),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (item.status == QueueStatus.FAILED) {
+                Row {
+                    TextButton(onClick = onRetry) { Text("Reintentar") }
+                    TextButton(onClick = { showDetails = true }) { Text("Detalles") }
+                }
+            }
         }
+    }
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("Detalles de la descarga") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text("${item.platform} · $timeStr")
+                    Text(item.url, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text(item.errorMessage.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(
+                        "${item.platform}\n${item.url}\n${item.errorMessage.orEmpty()}"
+                    ))
+                    showDetails = false
+                }) { Text("Copiar diagnóstico") }
+            },
+            dismissButton = { TextButton(onClick = { showDetails = false }) { Text("Cerrar") } },
+        )
     }
 }

@@ -1,7 +1,7 @@
 [versions]
 accompanist = "0.34.0"
-androidGradlePlugin = "8.13.2"
-androidxComposeBom = "2025.03.01"
+androidGradlePlugin = "9.2.1"
+androidxComposeBom = "2026.09.00"
 androidxCore = "1.15.0"
 androidMaterial = "1.12.0"
 androidxAppCompat = "1.7.0"
@@ -21,15 +21,15 @@ coil = "2.5.0"
 
 junit4 = "4.13.2"
 
-kotlin = "2.0.20"
+kotlin = "2.4.10"
 
 coroutines = "1.9.0"
 datetime = "0.6.1"
 serialization = "1.7.2"
 okhttp = "5.0.0-alpha.10"
 
-room = "2.6.1"
-ksp = "2.0.20-1.0.25"
+room = "2.8.5"
+ksp = "2.3.12"
 
 youtubedlAndroid = "0.17.3"
 
@@ -54,8 +54,7 @@ accompanist-permissions = { group = "com.google.accompanist", name = "accompanis
 accompanist-webview = { group = "com.google.accompanist", name = "accompanist-webview", version.ref = "accompanist" }
 accompanist-pager-indicators = { group = "com.google.accompanist", name = "accompanist-pager-indicators", version.ref = "accompanist" }
 
-#androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }
-androidx-compose-bom = { group = "androidx.compose", name = "compose-bom-alpha", version.ref = "androidxComposeBom" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }
 
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 androidx-compose-material-iconsExtended = { group = "androidx.compose.material", name = "material-icons-extended" }

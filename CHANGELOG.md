@@ -5,6 +5,26 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.8] - 2026-09-24
+
+### Español
+
+- Se rediseñó la navegación principal con una barra inferior para Inicio, Descargas y Ajustes, y se reorganizó la pantalla de descargas con filtros de estado.
+- Se renovaron la pantalla de inicio, la presentación de ajustes y los iconos de plataformas en la cola y el historial. Se ajustó el icono adaptable de SeaRL para evitar el recorte del logo.
+- Se mejoró el pegado de varios enlaces, incluso desde el teclado Samsung, para mantener cada URL en su propia línea.
+- Se mejoró el tratamiento de enlaces compartidos de Facebook y Threads y la conservación de cookies de inicio de sesión.
+- Se actualizó el yt-dlp integrado a la versión estable 2026.08.19; el canal estable es ahora el predeterminado para nuevas instalaciones.
+- La actualización se distribuye en una sola APK universal compatible con las arquitecturas incluidas.
+
+### English
+
+- Redesigned the main navigation with a bottom bar for Home, Downloads, and Settings, and reorganized downloads with status filters.
+- Refreshed the home screen, settings presentation, and platform icons in the queue and history. Adjusted SeaRL's adaptive launcher icon to keep the logo visible.
+- Improved pasting multiple links, including from Samsung Keyboard, so each URL remains on its own line.
+- Improved handling of Facebook and Threads share links and persistence of sign-in cookies.
+- Updated the bundled yt-dlp to stable version 2026.08.19; stable is now the default update channel for new installs.
+- The update is distributed as one universal APK for the bundled architectures.
+
 ## [v1.0.7] - 2026-07-19
 
 ### Español

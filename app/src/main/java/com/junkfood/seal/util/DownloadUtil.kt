@@ -42,9 +42,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okio.ByteString.Companion.decodeBase64
 import java.util.Locale
 
 object DownloadUtil {
+
+    fun threadsVideoInfo(media: ThreadsWebViewResolver.Media): VideoInfo =
+        VideoInfo(
+            id = extractThreadsPostShortcode(media.webpageUrl) ?: "threads_${media.webpageUrl.hashCode()}",
+            title = media.title,
+            ext = "mp4",
+            webpageUrl = media.webpageUrl,
+            originalUrl = media.url,
+            thumbnail = media.thumbnail,
+            extractor = "threads",
+            extractorKey = "Threads",
+        )
 
     object CookieScheme {
         const val NAME = "name"
@@ -309,7 +322,8 @@ object DownloadUtil {
     ): Result<YoutubeDLInfo> =
         YoutubeDL.runCatching {
             ToastUtil.makeToastSuspend(context.getString(R.string.fetching_playlist_info))
-            val request = YoutubeDLRequest(playlistURL)
+            val resolvedPlaylistUrl = resolveFacebookShareUrl(playlistURL)
+            val request = YoutubeDLRequest(resolvedPlaylistUrl)
             with(request) {
                 //            addOption("--compat-options", "no-youtube-unavailable-videos")
                 addOption("--flat-playlist")
@@ -336,7 +350,7 @@ object DownloadUtil {
                     }
                 }
             }
-            execute(request, playlistURL).out.run {
+            execute(request, resolvedPlaylistUrl).out.run {
                 val playlistInfo = jsonFormat.decodeFromString<PlaylistResult>(this)
                 if (playlistInfo.type != "playlist") {
                     jsonFormat.decodeFromString<VideoInfo>(this)
@@ -419,7 +433,8 @@ object DownloadUtil {
             return Result.success(syntheticInfo)
         }
 
-        val (resolvedUrl, thumbnailUrl) = resolveThreadsUrl(url)
+        val facebookResolvedUrl = resolveFacebookShareUrl(url)
+        val (resolvedUrl, thumbnailUrl) = resolveThreadsUrl(facebookResolvedUrl)
 
         val isResolvedToCdnUrl = resolvedUrl != url && (
             resolvedUrl.contains("cdninstagram.com") ||
@@ -1045,6 +1060,29 @@ object DownloadUtil {
             )
         }
 
+    private fun extractDirectMediaAudio(videoFile: java.io.File, audioFile: java.io.File) {
+        val nativeLibraryDir = context.applicationInfo.nativeLibraryDir
+        val ffmpeg = java.io.File(nativeLibraryDir, "libffmpeg.so")
+        if (!ffmpeg.exists()) error("FFmpeg no está disponible para extraer el audio.")
+        val command = listOf(
+            ffmpeg.absolutePath, "-y", "-i", videoFile.absolutePath,
+            "-vn", "-c:a", "aac", "-b:a", "192k", audioFile.absolutePath,
+        )
+        val processBuilder = ProcessBuilder(command).redirectErrorStream(true)
+        val ffmpegLibraries = java.io.File(
+            context.noBackupFilesDir,
+            "youtubedl-android/packages/ffmpeg/usr/lib",
+        )
+        processBuilder.environment()["LD_LIBRARY_PATH"] =
+            "${ffmpegLibraries.absolutePath}:$nativeLibraryDir"
+        val process = processBuilder.start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (process.waitFor() != 0 || audioFile.length() == 0L) {
+            audioFile.delete()
+            error("No se pudo extraer el audio del video de Threads: ${output.takeLast(500)}")
+        }
+    }
+
     @CheckResult
     fun downloadVideo(
         videoInfo: VideoInfo? = null,
@@ -1081,9 +1119,18 @@ object DownloadUtil {
                     "${prefix}_${System.currentTimeMillis()}.$ext"
                 }
                 
-                val destDir = java.io.File(videoDownloadDir)
+                if (downloadPreferences.extractAudio && ext !in listOf("mp4", "webm")) {
+                    error("Este contenido no tiene una pista de audio descargable.")
+                }
+                val destDir = java.io.File(
+                    if (downloadPreferences.extractAudio) audioDownloadDir else videoDownloadDir
+                )
                 destDir.mkdirs()
                 val destFile = java.io.File(destDir, fileName)
+                val audioFile = if (downloadPreferences.extractAudio) {
+                    java.io.File(destDir, fileName.substringBeforeLast('.') + ".m4a")
+                } else null
+                var completed = false
 
                 val client = okhttp3.OkHttpClient.Builder()
                     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -1096,30 +1143,44 @@ object DownloadUtil {
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")
                     .header("Referer", if (videoInfo.extractor == "threads") "https://www.threads.com/" else "https://www.instagram.com/")
                     .build()
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) throw Throwable("Failed to download media: HTTP ${response.code}")
-
-                response.body?.byteStream()?.use { inputStream ->
-                    destFile.outputStream().use { outputStream ->
-                        val buffer = ByteArray(65536) // 64KB chunks for faster download
-                        var bytesRead: Int
-                        var totalRead = 0L
-                        val contentLength = response.body?.contentLength() ?: -1L
-                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                            outputStream.write(buffer, 0, bytesRead)
-                            totalRead += bytesRead
-                            if (contentLength > 0) {
-                                progressCallback?.invoke((totalRead * 100f / contentLength), totalRead, "")
+                try {
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) error("No se pudo descargar el video: HTTP ${response.code}")
+                        val body = response.body ?: error("El servidor no devolvió el video.")
+                        body.byteStream().use { inputStream ->
+                            destFile.outputStream().use { outputStream ->
+                                val buffer = ByteArray(65536)
+                                var bytesRead: Int
+                                var totalRead = 0L
+                                val contentLength = body.contentLength()
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    outputStream.write(buffer, 0, bytesRead)
+                                    totalRead += bytesRead
+                                    if (contentLength > 0) {
+                                        progressCallback?.invoke((totalRead * 95f / contentLength), totalRead, "")
+                                    }
+                                }
                             }
                         }
                     }
-                } ?: throw Throwable("Empty response body from CDN")
-
-                progressCallback?.invoke(100f, 0L, "")
-                val downloadedFiles =
-                    FileUtil.publishDownloadedFilesToMediaLibrary(listOf(destFile.absolutePath))
-                insertInfoIntoDownloadHistory(videoInfo, downloadedFiles)
-                downloadedFiles
+                    if (destFile.length() == 0L) error("El servidor devolvió un video vacío.")
+                    val finalFile = if (audioFile != null) {
+                        extractDirectMediaAudio(destFile, audioFile)
+                        destFile.delete()
+                        audioFile
+                    } else destFile
+                    val downloadedFiles =
+                        FileUtil.publishDownloadedFilesToMediaLibrary(listOf(finalFile.absolutePath))
+                    insertInfoIntoDownloadHistory(videoInfo, downloadedFiles)
+                    completed = true
+                    progressCallback?.invoke(100f, finalFile.length(), "")
+                    downloadedFiles
+                } finally {
+                    if (!completed) {
+                        destFile.delete()
+                        audioFile?.delete()
+                    }
+                }
             }
         }
 
@@ -1133,7 +1194,8 @@ object DownloadUtil {
                             Throwable(context.getString(R.string.fetch_info_error_msg))
                         )
                 }
-            val (resolvedUrl, _) = resolveThreadsUrl(url)
+            val facebookResolvedUrl = resolveFacebookShareUrl(url)
+            val (resolvedUrl, _) = resolveThreadsUrl(facebookResolvedUrl)
             val request = YoutubeDLRequest(resolvedUrl)
             val pathBuilder = StringBuilder()
             val outputBuilder = StringBuilder()
@@ -1532,14 +1594,198 @@ object DownloadUtil {
         return if (contains(cleanAuthor, ignoreCase = true)) this else "$cleanAuthor - $this"
     }
 
+    private fun facebookHost(url: String): String? =
+        runCatching { java.net.URI(url).host?.lowercase() }.getOrNull()
+
+    private fun isFacebookHost(url: String): Boolean {
+        val host = facebookHost(url) ?: return false
+        return host == "facebook.com" || host.endsWith(".facebook.com") || host == "fb.watch"
+    }
+
+    internal fun isFacebookShareUrl(url: String): Boolean {
+        if (!isFacebookHost(url)) return false
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase().orEmpty()
+        val path = uri.path.orEmpty().lowercase()
+        return host == "fb.watch" ||
+            path == "/share" ||
+            path.startsWith("/share/") ||
+            path == "/share.php"
+    }
+
+    internal fun isCanonicalFacebookMediaUrl(url: String): Boolean {
+        if (!isFacebookHost(url) || isFacebookShareUrl(url)) return false
+        val path = runCatching { java.net.URI(url).path.orEmpty().lowercase() }.getOrDefault("")
+        if (path.startsWith("/login") || path.startsWith("/checkpoint")) return false
+        return path.contains("/reel/") ||
+            path.contains("/videos/") ||
+            path.startsWith("/watch") ||
+            path.contains("/stories/") ||
+            path.contains("/posts/") ||
+            path.startsWith("/photo") ||
+            path == "/story.php" ||
+            path == "/video.php" ||
+            path == "/permalink.php"
+    }
+
+    internal fun extractCanonicalFacebookRedirectTarget(url: String): String? {
+        if (isCanonicalFacebookMediaUrl(url)) return url
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return null
+        val encodedTargets =
+            uri.rawQuery
+                ?.split("&")
+                ?.mapNotNull { parameter ->
+                    val parts = parameter.split("=", limit = 2)
+                    val name = parts.firstOrNull()?.lowercase()
+                    if (name == "next" || name == "u" || name == "href") {
+                        parts.getOrNull(1)
+                    } else {
+                        null
+                    }
+                }
+                .orEmpty()
+
+        encodedTargets.forEach { encodedTarget ->
+            var candidate = encodedTarget
+            repeat(3) {
+                candidate =
+                    runCatching { java.net.URLDecoder.decode(candidate, "UTF-8") }
+                        .getOrDefault(candidate)
+                val absoluteCandidate =
+                    if (candidate.startsWith("/")) "https://www.facebook.com$candidate" else candidate
+                if (isCanonicalFacebookMediaUrl(absoluteCandidate)) return absoluteCandidate
+            }
+        }
+        return null
+    }
+
+    internal fun facebookUrlForExtractor(url: String): String {
+        if (!isCanonicalFacebookMediaUrl(url)) return url
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return url
+        val segments = uri.path.orEmpty().split("/").filter { it.isNotEmpty() }
+        val storiesIndex = segments.indexOfFirst { it.equals("stories", ignoreCase = true) }
+        if (storiesIndex < 0 || segments.size <= storiesIndex + 2) return url
+
+        val ownerId = segments[storiesIndex + 1].takeIf { it.all(Char::isDigit) } ?: return url
+        val decodedStoryToken = segments[storiesIndex + 2].decodeBase64()?.utf8() ?: return url
+        val storyId = Regex("""(\d+)$""").find(decodedStoryToken)?.groupValues?.get(1) ?: return url
+        return "https://www.facebook.com/story.php?story_fbid=$storyId&id=$ownerId"
+    }
+
+    private fun resolveFacebookShareUrl(url: String): String {
+        if (!isFacebookShareUrl(url)) return facebookUrlForExtractor(url)
+
+        val facebookDomains =
+            listOf(
+                "https://facebook.com",
+                "https://www.facebook.com",
+                "https://m.facebook.com",
+                "https://mbasic.facebook.com",
+                "https://web.facebook.com",
+            )
+        val facebookCookies =
+            facebookDomains
+                .mapNotNull { CookieManager.getInstance().getCookie(it) }
+                .flatMap { it.split(";") }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinctBy { it.substringBefore("=").trim() }
+                .joinToString("; ")
+        val client =
+            okhttp3.OkHttpClient.Builder()
+                .followRedirects(false)
+                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+        return runCatching {
+                var currentUrl = url.substringBefore('#')
+                repeat(5) {
+                    val currentHost = facebookHost(currentUrl).orEmpty()
+                    val request =
+                        okhttp3.Request.Builder()
+                            .url(currentUrl)
+                            .head()
+                            .header(
+                                "User-Agent",
+                                "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 " +
+                                    "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+                            )
+                            .apply {
+                                if (
+                                    facebookCookies.isNotEmpty() &&
+                                        (currentHost == "facebook.com" ||
+                                            currentHost.endsWith(".facebook.com"))
+                                ) {
+                                    header("Cookie", facebookCookies)
+                                }
+                            }
+                            .build()
+                    val nextUrl =
+                        client.newCall(request).execute().use { response ->
+                            val location = response.header("Location") ?: return@use null
+                            response.request.url.resolve(location)?.toString()
+                        } ?: return@runCatching url
+
+                    extractCanonicalFacebookRedirectTarget(nextUrl)?.let {
+                        return@runCatching facebookUrlForExtractor(it)
+                    }
+                    if (!isFacebookHost(nextUrl)) return@runCatching url
+                    currentUrl = nextUrl
+                }
+                url
+            }
+            .onFailure { Log.w(TAG, "Could not resolve Facebook share URL: ${it.message}") }
+            .getOrDefault(url)
+    }
+
+    internal fun extractThreadsPostShortcode(url: String): String? =
+        Regex("""threads\.(?:com|net)/(?:@[^/]+/post/|t/)([A-Za-z0-9_\-]+)""")
+            .find(url)
+            ?.groupValues
+            ?.get(1)
+
+    private fun resolveThreadsShareUrl(url: String): String {
+        val isShareUrl =
+            Regex("""threads\.(?:com|net)/share/[A-Za-z0-9_\-]+""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(url)
+        if (!isShareUrl) return url
+
+        return runCatching {
+                val request =
+                    okhttp3.Request.Builder()
+                        .url(url.substringBefore('#'))
+                        .head()
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+                        )
+                        .build()
+                okhttp3.OkHttpClient.Builder()
+                    .followRedirects(true)
+                    .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                    .newCall(request)
+                    .execute()
+                    .use { response ->
+                        response.request.url.toString().takeIf {
+                            extractThreadsPostShortcode(it) != null
+                        } ?: url
+                    }
+            }
+            .onFailure { Log.w(TAG, "Could not resolve Threads share URL: ${it.message}") }
+            .getOrDefault(url)
+    }
+
     private fun resolveThreadsUrl(url: String): Pair<String, String?> {
         if (!url.contains("threads.com", ignoreCase = true) && !url.contains("threads.net", ignoreCase = true)) return Pair(url, null)
 
+        val canonicalUrl = resolveThreadsShareUrl(url)
         try {
             // --- Step 1: Extract shortcode ---
-            val shortcodeMatch = Regex("""threads\.(?:com|net)/(?:@[^/]+/post/|t/)([A-Za-z0-9_\-]+)""")
-                .find(url) ?: return Pair(url, null)
-            val shortcode = shortcodeMatch.groupValues[1]
+            val shortcode = extractThreadsPostShortcode(canonicalUrl) ?: return Pair(url, null)
 
             // --- Step 2: Decode shortcode to media ID ---
             val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -1562,7 +1808,7 @@ object DownloadUtil {
             )
             val cookiesByDomain = domains.associateWith { cookieManager.getCookie(it) }
             cookiesByDomain.forEach { (domain, c) ->
-                Log.d(TAG, "resolveThreadsUrl cookies[$domain]: ${if (c.isNullOrEmpty()) "NONE" else c.take(80) + "..."}")
+                Log.d(TAG, "resolveThreadsUrl cookies[$domain] present=${!c.isNullOrEmpty()}")
             }
 
             // Merge all available cookies, preferring threads.com then instagram.com
@@ -1576,7 +1822,7 @@ object DownloadUtil {
 
             if (allCookies.isEmpty()) {
                 Log.d(TAG, "resolveThreadsUrl: No cookies found in any Meta domain — user must log in first")
-                return Pair(url, null)
+                return Pair(canonicalUrl, null)
             }
 
             // Try to find sessionid (may be from either threads.com or instagram.com)
@@ -1590,11 +1836,14 @@ object DownloadUtil {
                 .firstOrNull { it.startsWith("csrftoken=") }
                 ?.removePrefix("csrftoken=") ?: ""
 
-            Log.d(TAG, "resolveThreadsUrl: sessionid=${sessionId.take(20)}... csrftoken=${csrfToken.take(20)}...")
+            Log.d(
+                TAG,
+                "resolveThreadsUrl: session present=${sessionId.isNotEmpty()}, csrf present=${csrfToken.isNotEmpty()}",
+            )
 
             if (sessionId.isEmpty()) {
                 Log.d(TAG, "resolveThreadsUrl: No sessionid found — user must complete login in WebView")
-                return Pair(url, null)
+                return Pair(canonicalUrl, null)
             }
 
             val client = okhttp3.OkHttpClient.Builder()
@@ -1666,7 +1915,10 @@ object DownloadUtil {
                     ?.split("\t")
                     ?.getOrNull(6) ?: ""
 
-                Log.d(TAG, "resolveThreadsUrl: cookies.txt sessionid=${sessionIdFromFile.take(20)}...")
+                Log.d(
+                    TAG,
+                    "resolveThreadsUrl: cookies.txt contains Threads/Instagram session=${sessionIdFromFile.isNotEmpty()}",
+                )
 
                 if (sessionIdFromFile.isNotEmpty()) {
                     val cookieHeader = buildString {
@@ -1694,7 +1946,7 @@ object DownloadUtil {
         } catch (e: Exception) {
             Log.e(TAG, "resolveThreadsUrl failed: ${e.message}", e)
         }
-        return Pair(url, null)
+        return Pair(canonicalUrl, null)
     }
 
     /** Parse the JSON response from Instagram/Threads /api/v1/media/{id}/info/ */

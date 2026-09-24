@@ -481,6 +481,7 @@ fun VideoListPage(viewModel: VideoListViewModel = koinViewModel(), onNavigateBac
                                 videoPath = videoPath,
                                 videoFileSize = fileSizeMap.getOrElse(id) { 0L },
                                 videoUrl = videoUrl,
+                                extractor = extractor,
                                 isSelectEnabled = { isSelectEnabled },
                                 isSelected = { selectedItemIds.contains(id) },
                                 onSelect = {
