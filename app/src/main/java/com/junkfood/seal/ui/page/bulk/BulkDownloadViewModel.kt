@@ -45,9 +45,10 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            if (!"bulk_queue_paused".getBoolean(false) &&
-                queueDao.getNextByStatus(QueueStatus.PENDING) != null
-            ) {
+            if (queueDao.getNextByStatus(QueueStatus.PENDING) != null) {
+                // The redesigned downloads screen has no pause control. Clear a pause left
+                // by an older version so its pending items can run again.
+                "bulk_queue_paused".updateBoolean(false)
                 triggerDownloadWorker()
             }
         }

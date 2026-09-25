@@ -27,6 +27,16 @@
 -keep class com.yausername.** { *; }
 -keep class org.apache.commons.compress.archivers.zip.** { *; }
 
+# WorkManager recreates these classes by name from its persisted database.
+# R8 otherwise removes InputMerger's public constructor in release builds,
+# leaving queued downloads in PENDING before BulkDownloadWorker can start.
+-keep class * extends androidx.work.InputMerger {
+    public <init>();
+}
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+
 # Keep `Companion` object fields of serializable classes.
 # This avoids serializer lookup through `getDeclaredClasses` as done for named companion objects.
 -if @kotlinx.serialization.Serializable class **

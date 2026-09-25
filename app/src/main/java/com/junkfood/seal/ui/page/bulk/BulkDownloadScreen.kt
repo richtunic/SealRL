@@ -329,7 +329,7 @@ fun QueueItemRow(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 // Row action buttons
-                if (item.status == QueueStatus.FAILED || item.status == QueueStatus.CANCELED) {
+                if (item.status == QueueStatus.PENDING || item.status == QueueStatus.FAILED || item.status == QueueStatus.CANCELED) {
                     IconButton(onClick = onRetry, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color(0xFFE11D48), modifier = Modifier.size(18.dp))
                     }

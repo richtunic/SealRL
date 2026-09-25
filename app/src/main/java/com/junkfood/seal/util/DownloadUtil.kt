@@ -2324,21 +2324,33 @@ object DownloadUtil {
     private fun fetchPublicInstagramPost(shortcode: String): List<InstagramMediaItem>? {
         val webpageUrl = "https://www.instagram.com/p/$shortcode/"
         return runCatching {
-            val requestBuilder = okhttp3.Request.Builder()
-                .url("${webpageUrl}embed/captioned/")
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")
-            getInstagramCookies().first.takeIf { it.isNotBlank() }
-                ?.let { requestBuilder.header("Cookie", it) }
-            val request = requestBuilder.build()
             val client = okhttp3.OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
-            val html = client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@runCatching null
-                response.body?.string() ?: return@runCatching null
+            val cookies = getInstagramCookies().first
+            var parsed: List<InstagramEmbedParser.Media>? = null
+            for (path in listOf("embed/", "embed/captioned/")) {
+                for (withSession in listOf(false, true)) {
+                    if (withSession && cookies.isBlank()) continue
+                    val requestBuilder = okhttp3.Request.Builder()
+                        .url(webpageUrl + path)
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")
+                    if (withSession) requestBuilder.header("Cookie", cookies)
+                    val html = client.newCall(requestBuilder.build()).execute().use { response ->
+                        val body = if (response.isSuccessful) response.body?.string() else null
+                        val hasPost = body?.contains("shortcode_media") == true
+                        val errorPage = body?.contains("httpErrorPage") == true
+                        Log.d(TAG, "Instagram embed $path session=$withSession status=${response.code} length=${body?.length ?: 0} hasPost=$hasPost errorPage=$errorPage")
+                        body
+                    } ?: continue
+                    parsed = InstagramEmbedParser.parse(html, shortcode)
+                    Log.d(TAG, "Instagram embed $path parsed=${parsed?.size ?: 0}")
+                    if (!parsed.isNullOrEmpty()) break
+                }
+                if (!parsed.isNullOrEmpty()) break
             }
-            InstagramEmbedParser.parse(html, shortcode)?.map { media ->
+            parsed?.map { media ->
                 InstagramMediaItem(
                     id = media.id,
                     mediaUrl = createInstagramMediaUrl(

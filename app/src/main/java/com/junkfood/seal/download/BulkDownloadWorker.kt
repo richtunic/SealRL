@@ -44,12 +44,9 @@ class BulkDownloadWorker(
     }
 
     override suspend fun doWork(): ListenableWorker.Result = withContext(Dispatchers.IO) {
-        createNotificationChannelIfNeeded()
-
         var currentItem: QueueItemEntity? = null
         try {
-            // Show initial foreground notification
-            setForeground(getForegroundInfo("SeaRL", "Iniciando descargas...", 0))
+            createNotificationChannelIfNeeded()
 
             // Cache download history locally to prevent hammering SQLite with regex query compiles
             val historyCache = DatabaseUtil.getDownloadHistory().toMutableList()
@@ -62,6 +59,10 @@ class BulkDownloadWorker(
 
                 val nextItem = queueDao.getNextByStatus(QueueStatus.PENDING) ?: break
                 currentItem = nextItem
+
+                // Associate foreground startup failures with the queue item instead of
+                // leaving it indefinitely in PENDING.
+                setForeground(getForegroundInfo("SeaRL", "Iniciando descargas...", 0))
 
                 // Process item
                 processItem(nextItem, historyCache)
