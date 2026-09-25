@@ -5,6 +5,20 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.11] - 2026-09-24
+
+### Español
+
+- La APK release conserva los constructores que WorkManager necesita para iniciar la cola; los errores al arrancar se muestran en la tarea en lugar de dejarla pendiente.
+- Los posts de Instagram prueban `/embed/` antes de la ruta anterior y recuperan la cola al abrir SeaRL.
+- Los elementos pendientes ofrecen Reintentar. El post de 16 fotos reportado se verificó en un Android real.
+
+### English
+
+- The release APK keeps the constructors WorkManager needs to start the queue; startup failures appear on the task instead of leaving it pending.
+- Instagram posts try `/embed/` before the previous endpoint and resume the queue when SeaRL opens.
+- Pending items offer Retry. The reported 16-photo post was verified on a real Android device.
+
 ## [v1.0.10] - 2026-09-24
 
 ### Español
