@@ -2324,10 +2324,12 @@ object DownloadUtil {
     private fun fetchPublicInstagramPost(shortcode: String): List<InstagramMediaItem>? {
         val webpageUrl = "https://www.instagram.com/p/$shortcode/"
         return runCatching {
-            val request = okhttp3.Request.Builder()
+            val requestBuilder = okhttp3.Request.Builder()
                 .url("${webpageUrl}embed/captioned/")
                 .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")
-                .build()
+            getInstagramCookies().first.takeIf { it.isNotBlank() }
+                ?.let { requestBuilder.header("Cookie", it) }
+            val request = requestBuilder.build()
             val client = okhttp3.OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
@@ -2357,7 +2359,29 @@ object DownloadUtil {
             .getOrNull()
     }
 
+    private fun fetchInstagramPostFromApi(shortcode: String): List<InstagramMediaItem>? {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        var mediaId = 0L
+        for (char in shortcode) {
+            val index = alphabet.indexOf(char)
+            if (index < 0) return null
+            mediaId = mediaId * 64 + index
+        }
+        if (mediaId <= 0) return null
+        val apiUrl = "https://www.instagram.com/api/v1/media/$mediaId/info/"
+        return parseInstagramMediaItems(executeInstagramGetRequest(apiUrl, "https://www.instagram.com/"))
+    }
+
     suspend fun fetchInstagramMediaList(url: String): List<InstagramMediaItem>? = withContext(Dispatchers.IO) {
+        val postShortcodeMatch = Regex("""instagram\.com/(?:p|reel|tv|reels)/([A-Za-z0-9_-]+)""").find(url)
+        val postShortcode = postShortcodeMatch?.groupValues?.get(1)
+        val hasWebViewSession = postShortcode != null && getInstagramCookies().first
+            .split(';')
+            .any { it.trim().startsWith("sessionid=") }
+        if (postShortcode != null && hasWebViewSession) {
+            runCatching { fetchInstagramPostFromApi(postShortcode) }
+                .getOrNull()?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
+        }
         val publicPost = Regex("""instagram\.com/p/([A-Za-z0-9_-]+)""").find(url)
         if (publicPost != null) {
             fetchPublicInstagramPost(publicPost.groupValues[1])?.let { return@withContext it }
@@ -2413,23 +2437,9 @@ object DownloadUtil {
         }
 
         // 4. Check if it's a post, reel, or IGTV URL
-        val postShortcodeMatch = Regex("""instagram\.com/(?:p|reel|tv|reels)/([A-Za-z0-9_\-]+)""").find(url)
-        if (postShortcodeMatch != null) {
-            val shortcode = postShortcodeMatch.groupValues[1]
-            val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-            var mediaId = 0L
-            for (c in shortcode) {
-                val idx = alphabet.indexOf(c)
-                if (idx >= 0) {
-                    mediaId = mediaId * 64 + idx
-                }
-            }
-            if (mediaId > 0) {
-                val apiUrl = "https://www.instagram.com/api/v1/media/${mediaId}/info/"
-                val response = executeInstagramGetRequest(apiUrl, "https://www.instagram.com/")
-                val parsed = parseInstagramMediaItems(response)
-                if (!parsed.isNullOrEmpty()) return@withContext parsed
-            }
+        if (postShortcodeMatch != null && !hasWebViewSession) {
+            fetchInstagramPostFromApi(postShortcodeMatch.groupValues[1])
+                ?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
         }
 
         null

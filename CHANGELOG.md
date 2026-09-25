@@ -5,6 +5,18 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.10] - 2026-09-24
+
+### Español
+
+- Los posts de Instagram intentan primero la API con la sesión del WebView integrado; si no devuelve medios, usan el embed como respaldo.
+- La solicitud al embed también incluye las cookies guardadas para Instagram.
+
+### English
+
+- Instagram posts try the API with the built-in WebView session first; if it returns no media, they fall back to the embed.
+- Embed requests also include the saved Instagram cookies.
+
 ## [v1.0.9] - 2026-09-24
 
 ### Español
