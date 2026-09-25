@@ -117,7 +117,7 @@ fun MediaListItem(
                 verticalArrangement = Arrangement.Top,
             ) {
                 if (platformLogo != null) {
-                    PlatformIcon(platformLogo, Modifier.size(18.dp))
+                    PlatformIcon(platformLogo, Modifier.size(15.dp))
                     androidx.compose.foundation.layout.Spacer(Modifier.height(4.dp))
                 }
                 Text(

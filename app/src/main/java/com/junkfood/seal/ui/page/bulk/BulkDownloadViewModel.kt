@@ -43,6 +43,16 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
     private val queueDao = com.junkfood.seal.database.BulkDatabaseUtil.queueDao
     private val workManager = WorkManager.getInstance(application)
 
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!"bulk_queue_paused".getBoolean(false) &&
+                queueDao.getNextByStatus(QueueStatus.PENDING) != null
+            ) {
+                triggerDownloadWorker()
+            }
+        }
+    }
+
     private val _inputText = MutableStateFlow("")
     val inputText = _inputText.asStateFlow()
 
@@ -490,7 +500,7 @@ class BulkDownloadViewModel(application: Application) : AndroidViewModel(applica
             .build()
         workManager.enqueueUniqueWork(
             "BulkDownloadWork",
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             workRequest
         )
     }

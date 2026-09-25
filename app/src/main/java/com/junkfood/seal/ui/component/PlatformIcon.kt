@@ -26,7 +26,7 @@ fun platformLogoForDownload(videoUrl: String, extractor: String): String? {
 @Composable
 fun PlatformIcon(platform: String, modifier: Modifier = Modifier) {
     val resource = when (platform.lowercase()) {
-        "instagram" -> R.drawable.platform_instagram
+        "instagram", "story" -> R.drawable.platform_instagram
         "x" -> R.drawable.platform_x
         "tiktok" -> R.drawable.platform_tiktok
         "youtube" -> R.drawable.platform_youtube

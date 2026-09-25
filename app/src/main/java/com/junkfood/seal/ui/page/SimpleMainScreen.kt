@@ -592,7 +592,7 @@ fun SimpleMainScreen(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                         ) {
                             listOf("Instagram", "X", "TikTok", "YouTube", "Threads", "Facebook").forEach { platform ->
-                                PlatformIcon(platform, Modifier.size(22.dp))
+                                PlatformIcon(platform, Modifier.size(18.dp))
                             }
                         }
 
@@ -1553,7 +1553,7 @@ fun HistoryItemRow(
                 // The source is represented by its logo only.
                 val platformLogo = platformLogoForDownload(item.videoUrl, item.extractor)
                 if (platformLogo != null) {
-                    PlatformIcon(platformLogo, Modifier.size(22.dp))
+                    PlatformIcon(platformLogo, Modifier.size(17.dp))
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 

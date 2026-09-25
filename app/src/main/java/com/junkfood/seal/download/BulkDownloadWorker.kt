@@ -195,6 +195,46 @@ class BulkDownloadWorker(
                 userAgentString = webviewUserAgent
             )
 
+            // Older queued photo posts contain the page URL rather than a direct media URL.
+            // Resolve the whole carousel here so a pending item from a previous version can finish.
+            if (Regex("""https?://(?:www\.)?instagram\.com/p/[^/]+""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(effectiveUrl)) {
+                val mediaItems = DownloadUtil.fetchInstagramMediaList(effectiveUrl)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: error("Instagram no devolvió las fotos de esta publicación. Comprueba el enlace o inicia sesión desde Ajustes.")
+                val paths = mutableListOf<String>()
+                mediaItems.forEachIndexed { index, media ->
+                    val info = DownloadUtil.fetchVideoInfoFromUrl(media.mediaUrl).getOrThrow()
+                    val result = DownloadUtil.downloadVideo(
+                        videoInfo = info,
+                        taskId = current.id.toString(),
+                        downloadPreferences = downloadPreferences,
+                        progressCallback = { progress, _, _ ->
+                            val combined = ((index + progress / 100f) / mediaItems.size).coerceIn(0f, 1f)
+                            com.junkfood.seal.App.applicationScope.launch(Dispatchers.IO) {
+                                queueDao.updateProgressIfDownloading(
+                                    id = current.id,
+                                    progress = combined,
+                                    updatedAt = System.currentTimeMillis(),
+                                )
+                            }
+                        },
+                    ).getOrThrow()
+                    paths.addAll(result)
+                }
+                val completedAt = System.currentTimeMillis()
+                queueDao.update(current.copy(
+                    status = QueueStatus.COMPLETED,
+                    progress = 1f,
+                    title = if (mediaItems.all { !it.isVideo })
+                        "${mediaItems.size} fotos" else "${mediaItems.size} archivos",
+                    outputPath = paths.firstOrNull(),
+                    completedAt = completedAt,
+                    updatedAt = completedAt,
+                ))
+                return
+            }
+
 
             // 1. Fetch Video Info
             updateNotification(current, 0, "Obteniendo información...")
@@ -306,7 +346,7 @@ class BulkDownloadWorker(
                 updatedAt = System.currentTimeMillis()
             ))
 
-            // Save to app's native download history
+            // downloadVideo already saved the file in the app's history.
             val videoHistoryInfo = DownloadedVideoInfo(
                 id = 0,
                 videoTitle = videoInfo.title ?: current.title ?: current.url,
@@ -316,7 +356,6 @@ class BulkDownloadWorker(
                 videoPath = downloadedPath,
                 extractor = videoInfo.extractor ?: videoInfo.extractorKey ?: "Unknown"
             )
-            DatabaseUtil.insertInfo(videoHistoryInfo)
             historyCache.add(videoHistoryInfo)
         } finally {
             cancellationListener.cancel()

@@ -2321,7 +2321,47 @@ object DownloadUtil {
         }
     }
 
+    private fun fetchPublicInstagramPost(shortcode: String): List<InstagramMediaItem>? {
+        val webpageUrl = "https://www.instagram.com/p/$shortcode/"
+        return runCatching {
+            val request = okhttp3.Request.Builder()
+                .url("${webpageUrl}embed/captioned/")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")
+                .build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val html = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                response.body?.string() ?: return@runCatching null
+            }
+            InstagramEmbedParser.parse(html, shortcode)?.map { media ->
+                InstagramMediaItem(
+                    id = media.id,
+                    mediaUrl = createInstagramMediaUrl(
+                        mediaUrl = media.url,
+                        id = media.id,
+                        title = media.title,
+                        thumbnailUrl = media.thumbnail,
+                        webpageUrl = webpageUrl,
+                        author = media.author,
+                    ),
+                    thumbnailUrl = media.thumbnail ?: media.url,
+                    isVideo = media.isVideo,
+                    title = media.title,
+                    author = media.author,
+                )
+            }
+        }.onFailure { Log.w(TAG, "Could not inspect public Instagram post $shortcode", it) }
+            .getOrNull()
+    }
+
     suspend fun fetchInstagramMediaList(url: String): List<InstagramMediaItem>? = withContext(Dispatchers.IO) {
+        val publicPost = Regex("""instagram\.com/p/([A-Za-z0-9_-]+)""").find(url)
+        if (publicPost != null) {
+            fetchPublicInstagramPost(publicPost.groupValues[1])?.let { return@withContext it }
+        }
         // 1. Check if it's a highlights URL
         val highlightMatch = Regex("""instagram\.com/stories/highlights/([0-9]+)""").find(url)
         if (highlightMatch != null) {

@@ -5,6 +5,20 @@ All notable changes (starting from v1.7.3) to stable releases will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.9] - Unreleased
+
+### Español
+
+- Los posts públicos de Instagram con fotos o carruseles se leen desde el embed cuando la API de medios requiere iniciar sesión; cada foto se descarga en su formato original.
+- La cola vuelve a procesar tareas pendientes al abrir la app y atiende las que se añaden mientras termina un worker.
+- Las filas de la cola muestran un icono de plataforma en lugar del badge de texto; se redujo el tamaño de los iconos de plataforma.
+
+### English
+
+- Public Instagram photo posts and carousels use the embed when the media API requires sign-in; each photo downloads in its original format.
+- The queue resumes pending tasks when the app opens and picks up tasks added while a worker finishes.
+- Queue rows show a platform icon instead of a text badge; platform icons are smaller.
+
 ## [v1.0.8] - 2026-09-24
 
 ### Español

@@ -31,6 +31,7 @@ import com.junkfood.seal.R
 import com.junkfood.seal.database.objects.QueueItemEntity
 import com.junkfood.seal.database.objects.QueueStatus
 import com.junkfood.seal.ui.component.BackButton
+import com.junkfood.seal.ui.component.PlatformIcon
 import org.koin.androidx.compose.koinViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -267,18 +268,13 @@ fun QueueItemRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Platform badge
-                val badgeColor = Color(com.junkfood.seal.util.BulkUrlParser.getPlatformColor(item.platform))
-                Box(
-                    modifier = Modifier
-                        .background(badgeColor, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
+                if (item.platform in setOf("Instagram", "Story", "X", "TikTok", "YouTube", "Threads", "Facebook")) {
+                    PlatformIcon(item.platform, Modifier.size(16.dp))
+                } else {
                     Text(
                         text = item.platform,
-                        color = if (item.platform == "Threads") Color.Black else Color.White,
+                        color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
                     )
                 }
 
